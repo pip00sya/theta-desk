@@ -1,0 +1,35 @@
+# BACKUP scheduler — offset +15 min from the local primary (RED-TEAM P9).
+# Idempotency (structure_id dedup + client_order_id) makes double-fire safe.
+# NOTE: keep this repo PRIVATE until submission day — Actions logs on public
+# repos are world-readable.
+name: theta-desk-heartbeat
+on:
+  schedule:
+    - cron: "15,45 13-20 * * 1-5"   # UTC, weekdays
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: tick
+        run: python -m thetadesk.main tick
+        env:
+          APCA_API_BASE_URL: https://paper-api.alpaca.markets
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FEATHERLESS_API_KEY: ${{ secrets.FEATHERLESS_API_KEY }}
+      - name: persist journal + snapshots
+        run: |
+          git config user.name "theta-desk-bot"
+          git config user.email "bot@theta-desk.local"
+          git add data/journal data/snapshots || true
+          git diff --cached --quiet || git commit -m "journal: heartbeat $(date -u +%FT%TZ)"
+          git push

@@ -1,0 +1,108 @@
+# THETA DESK configuration — parameters per RED-TEAM patch list.
+# Every number here is a claim the reconciler can check against the journal.
+
+meta:
+  strategy_name: theta-desk
+  hackathon_deadline_utc: "2026-09-04T15:00:00Z"
+  # Judging continues after the deadline; all horizons extend 14 days past it.
+  judging_horizon_utc: "2026-09-18T20:00:00Z"
+
+universe:
+  underlyings: [SPY, QQQ, IWM]
+  primary: SPY
+
+expiry:
+  # Gate #3 (patched): every leg expires on/after this date. Sep 18 monthly.
+  min_expiry: "2026-09-18"
+  target_expiry: "2026-09-18"
+  calendar_back_expiry: "2026-10-16"
+
+structures:
+  default: iron_condor          # RED-TEAM P1: condor = 2x theta per unit of worst case
+  condor:
+    short_put_delta: 0.17
+    short_call_delta: 0.15
+    put_wing_width: 10.0
+    call_wing_width: 10.0
+    min_credit_frac_of_width: 0.18
+  put_credit_spread:
+    short_delta: 0.17
+    width: 10.0
+    min_credit_frac_of_width: 0.25
+  hedge:
+    put_delta: 0.05
+    budget_frac_equity: 0.006   # <= 0.6% of equity in total premium
+  calendar:
+    enabled: false              # first on the cut line; both legs must clear min_expiry
+
+risk:
+  # RED-TEAM patched values
+  per_structure_max_loss_frac: 0.0125     # gate #7: 1.25% of equity
+  portfolio_worst_case_frac: 0.06         # gate #8 base: 6% of equity
+  portfolio_worst_case_cap: 0.08          # earned-budget ceiling
+  earned_budget_gain_mult: 0.5            # budget = base + 0.5 * realized_gains (capped)
+  daily_new_risk_frac: 0.025              # gate #9: 2.5% per day
+  drawdown_halt_frac: 0.04                # gate #14: halt new risk (NOT flatten)
+  price_grid_low: 0.80                    # payoff grid: spot * [0.80 .. 1.20]
+  price_grid_high: 1.20
+  price_grid_step: 0.005
+  vol_shock_up_rel: 0.50                  # stressed scenario: IV +50% rel on down moves
+  risk_free_rate: 0.04
+
+liquidity:
+  max_rel_spread: 0.08          # gate #6
+  require_two_sided: true       # gate #5
+
+timing:
+  no_trade_first_min: 15        # gate #10
+  no_trade_last_min: 15
+  fill_wait_min: 10             # cancel unfilled after this
+  reprice_retries: 1
+  reprice_credit_haircut: 0.15  # 2nd attempt: accept 15% less credit
+
+management:
+  profit_target_frac: 0.35      # gate #12 (patched from 0.50)
+  realize_min_frac: 0.25        # realization policy: close best >=25% on idle days
+  structure_stop_credit_mult: 2.0   # gate #13
+  time_stop_dte: 7              # gate #11 (does not apply to legs behind min_expiry horizon)
+
+sizing:
+  disagreement_mult: 0.5        # gate #16
+  neutral_regime_mult: 0.5
+  event_mode_mult: 0.0          # no new risk inside event window
+
+events:
+  # Gate #17 (RED-TEAM P2): de-risk before high-class macro releases.
+  derisk_hours_before: 16
+  derisk_worst_case_frac: 0.025
+  calendar_file: events.yaml
+
+regime:
+  # Deterministic VRP signal. LLMs veto/argue; they do not compute.
+  rv_lookback_days: 20
+  vrp_rich_threshold: 0.60      # score >= -> sell premium (condors)
+  vrp_cheap_threshold: 0.40     # score <  -> cheap-vol branch (micro long vega)
+
+llm:
+  # DEVLOG #11: Anthropic disabled (no credits on the account, user decision).
+  # All four roles run on Featherless open models. Independence of the
+  # analyst/second-opinion pair comes from DIFFERENT model families
+  # (Qwen vs Mistral), not different prompts on the same weights.
+  # DEVLOG #10: Meta-Llama models are HF-gated on Featherless (403) — avoid.
+  analyst_provider: featherless
+  analyst_model: "Qwen/Qwen2.5-72B-Instruct"
+  second_provider: featherless
+  second_model: "mistralai/Mistral-Small-24B-Instruct-2501"
+  vetoer_provider: featherless
+  vetoer_model: "Qwen/Qwen2.5-7B-Instruct"
+  risk_provider: featherless
+  risk_model: "mistralai/Mistral-Small-24B-Instruct-2501"
+  timeout_s: 45
+  # Degraded mode: with no keys the desk falls back to deterministic
+  # signals and conservative defaults; every fallback is journaled.
+
+paths:
+  db: data/thetadesk.sqlite
+  journal_dir: data/journal
+  snapshot_dir: data/snapshots
+  evidence_dir: data/evidence

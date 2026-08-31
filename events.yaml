@@ -1,0 +1,9 @@
+# Known macro releases inside/near the competition window (RED-TEAM P2).
+# class: high -> gate #17 de-risks beforehand; medium -> size haircut only.
+events:
+  - name: "ISM Manufacturing PMI"
+    utc: "2026-09-01T14:00:00Z"
+    class: medium
+  - name: "Nonfarm Payrolls (NFP)"
+    utc: "2026-09-04T12:30:00Z"   # 08:30 ET, DEADLINE DAY
+    class: high

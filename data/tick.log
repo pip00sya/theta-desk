@@ -1,0 +1,61 @@
+﻿{
+  "signals": {
+    "spot": 769.245,
+    "rv20": 0.1389,
+    "atm_iv": 0.1167,
+    "vrp_score": 0.3401
+  },
+  "marks": {
+    "real": 9.01,
+    "shadow_nogates": 7.51,
+    "shadow_nohedge": 9.01,
+    "baseline_naive": -7.77
+  },
+  "entry_made": false
+}
+{
+  "signals": {
+    "spot": 769.4300000000001,
+    "rv20": 0.1389,
+    "atm_iv": 0.1154,
+    "vrp_score": 0.3309
+  },
+  "marks": {
+    "real": 4.38,
+    "shadow_nogates": 2.88,
+    "shadow_nohedge": 4.38,
+    "baseline_naive": -0.66
+  },
+  "entry_made": false
+}
+{
+  "signals": {
+    "spot": 769.325,
+    "rv20": 0.1389,
+    "atm_iv": 0.1153,
+    "vrp_score": 0.3301
+  },
+  "marks": {
+    "real": -10.77,
+    "shadow_nogates": -16.49,
+    "shadow_nohedge": -10.77,
+    "baseline_naive": -11.28
+  },
+  "entry_made": false
+}
+{
+  "signals": {
+    "spot": 769.2950000000001,
+    "rv20": 0.1389,
+    "atm_iv": 0.1154,
+    "vrp_score": 0.3311
+  },
+  "marks": {
+    "real": -15.57,
+    "shadow_nogates": -26.18,
+    "shadow_nohedge": -15.57,
+    "baseline_naive": -1.71
+  },
+  "entry_made": false
+}
+evidence saved to C:\Users\Nurkhan\Desktop\Alpaca AI\theta-desk\data\evidence\2026-08-29: account, positions, orders, activities, portfolio_history

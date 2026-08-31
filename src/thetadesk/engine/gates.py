@@ -1,0 +1,194 @@
+"""Gate orchestrator — every entry decision passes this wall of pure Python.
+
+LLMs never see this module's inputs or outputs before the fact; they cannot
+talk their way past a gate. Each GateResult is journaled, pass or fail.
+
+Gate numbering follows PLAN.md §4.5 as patched by RED-TEAM.md §3.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+
+from ..config import Config, MacroEvent
+from .contracts import Leg, Structure
+from .liquidity import check_quote
+from .payoff import PayoffResult, portfolio_worst_case
+
+
+@dataclass
+class GateResult:
+    gate: str
+    passed: bool
+    reason: str
+    data: dict = field(default_factory=dict)
+
+
+@dataclass
+class GateReport:
+    results: list[GateResult]
+    payoff: PayoffResult | None = None
+
+    @property
+    def passed(self) -> bool:
+        return all(r.passed for r in self.results)
+
+    @property
+    def first_failure(self) -> GateResult | None:
+        return next((r for r in self.results if not r.passed), None)
+
+    def to_dict(self) -> dict:
+        return {
+            "passed": self.passed,
+            "results": [{"gate": r.gate, "passed": r.passed, "reason": r.reason} for r in self.results],
+            "worst_case": None if not self.payoff else {
+                "pnl": self.payoff.worst_pnl,
+                "spot_rel": self.payoff.worst_spot_rel,
+                "scenario": self.payoff.worst_scenario,
+            },
+        }
+
+
+def g2_universe(s: Structure, allowed: list[str]) -> GateResult:
+    bad = {l.contract.underlying for l in s.legs} - set(allowed)
+    return GateResult("g2_universe", not bad,
+                      "ok" if not bad else f"underlying(s) {sorted(bad)} outside {allowed}")
+
+
+def g3_expiry(s: Structure, min_expiry: str) -> GateResult:
+    """Patched: every leg expires on/after min_expiry (judging-horizon safe)."""
+    early = [l.contract.symbol for l in s.legs if l.contract.expiry.isoformat() < min_expiry]
+    return GateResult("g3_expiry", not early,
+                      "ok" if not early else f"legs expire before {min_expiry}: {early}")
+
+
+def g4_defined_risk(s: Structure) -> GateResult:
+    try:
+        ml = s.max_loss
+    except ValueError as e:
+        return GateResult("g4_defined_risk", False, str(e))
+    return GateResult("g4_defined_risk", ml >= 0, f"max structural loss ${ml:,.0f}",
+                      {"max_loss": ml})
+
+
+def g5_g6_liquidity(s: Structure, chain: dict[str, dict], max_rel_spread: float) -> list[GateResult]:
+    out = []
+    for leg in s.legs:
+        snap = chain.get(leg.contract.symbol)
+        qc = check_quote(snap or {}, max_rel_spread)
+        out.append(GateResult("g5g6_liquidity", qc.ok,
+                              f"{leg.contract.symbol}: {qc.reason}",
+                              {"bid": qc.bid, "ask": qc.ask, "rel_spread": qc.rel_spread}))
+    return out
+
+
+def g7_structure_size(s: Structure, qty: int, equity: float, frac: float) -> GateResult:
+    risk = s.max_loss * qty / max(abs(l.qty) for l in s.legs)
+    limit = equity * frac
+    return GateResult("g7_structure_size", risk <= limit + 1e-6,
+                      f"structure risk ${risk:,.0f} vs limit ${limit:,.0f} ({frac:.2%} eq)",
+                      {"risk": risk, "limit": limit})
+
+
+def g8_portfolio_worst_case(book_legs: list[Leg], cand_legs: list[Leg], spot: float,
+                            asof: datetime, horizon: datetime, iv_map: dict[str, float],
+                            equity: float, cfg: Config,
+                            realized_gains: float) -> tuple[GateResult, PayoffResult]:
+    r = cfg["risk"]
+    base = equity * r["portfolio_worst_case_frac"]
+    earned = realized_gains * r["earned_budget_gain_mult"] if realized_gains > 0 else 0.0
+    budget = min(base + earned, equity * r["portfolio_worst_case_cap"])
+    res = portfolio_worst_case(
+        book_legs + cand_legs, spot, asof, horizon, iv_map,
+        grid_low=r["price_grid_low"], grid_high=r["price_grid_high"],
+        grid_step=r["price_grid_step"], vol_shock_up_rel=r["vol_shock_up_rel"],
+        r=r["risk_free_rate"],
+    )
+    ok = -res.worst_pnl <= budget + 1e-6
+    return GateResult(
+        "g8_portfolio_worst_case", ok,
+        f"book worst case ${-res.worst_pnl:,.0f} at {res.worst_spot_rel:.0%} spot "
+        f"({res.worst_scenario}) vs budget ${budget:,.0f}"
+        + (f" (earned +${earned:,.0f})" if earned else ""),
+        {"worst_pnl": res.worst_pnl, "budget": budget},
+    ), res
+
+
+def g9_daily_budget(new_risk_today: float, cand_risk: float, equity: float, frac: float) -> GateResult:
+    limit = equity * frac
+    total = new_risk_today + cand_risk
+    return GateResult("g9_daily_budget", total <= limit + 1e-6,
+                      f"today's new risk ${total:,.0f} vs limit ${limit:,.0f}",
+                      {"new_risk_today": new_risk_today, "cand_risk": cand_risk})
+
+
+def g10_time_window(now_et_minutes_from_open: float | None, minutes_to_close: float | None,
+                    first: int, last: int, market_open: bool) -> GateResult:
+    if not market_open:
+        return GateResult("g10_time_window", False, "market closed")
+    if now_et_minutes_from_open is not None and now_et_minutes_from_open < first:
+        return GateResult("g10_time_window", False,
+                          f"first {first} min of session (t+{now_et_minutes_from_open:.0f}m)")
+    if minutes_to_close is not None and minutes_to_close < last:
+        return GateResult("g10_time_window", False,
+                          f"last {last} min of session ({minutes_to_close:.0f}m to close)")
+    return GateResult("g10_time_window", True, "ok")
+
+
+def g14_halt(equity: float, high_watermark: float, frac: float) -> GateResult:
+    """Patched: drawdown -> HALT new risk (never panic-flatten)."""
+    if high_watermark <= 0:
+        return GateResult("g14_halt", True, "no watermark yet")
+    dd = 1.0 - equity / high_watermark
+    return GateResult("g14_halt", dd < frac,
+                      f"drawdown {dd:.2%} vs halt at {frac:.2%} "
+                      + ("(HALT MODE: managing only)" if dd >= frac else "(ok)"),
+                      {"drawdown": dd})
+
+
+def g17_event_derisk(now: datetime, events: list[MacroEvent], hours_before: int) -> GateResult:
+    for e in events:
+        if e.klass != "high":
+            continue
+        if timedelta(0) <= e.utc - now <= timedelta(hours=hours_before):
+            return GateResult("g17_event_derisk", False,
+                              f"{e.name} in {(e.utc - now).total_seconds() / 3600:.1f}h — no new risk")
+    return GateResult("g17_event_derisk", True, "no high-class event inside window")
+
+
+def run_entry_gates(
+    *, structure: Structure, qty: int, chain: dict[str, dict],
+    book_legs: list[Leg], spot: float, asof: datetime,
+    equity: float, high_watermark: float, realized_gains: float,
+    new_risk_today: float, cfg: Config,
+    minutes_from_open: float | None, minutes_to_close: float | None, market_open: bool,
+) -> GateReport:
+    """Full wall, ordered cheap -> expensive. Stops nothing early on purpose:
+    ALL gate results are computed and journaled so refusals are explainable."""
+    r = cfg["risk"]
+    results: list[GateResult] = []
+    results.append(g2_universe(structure, cfg.underlyings))
+    results.append(g3_expiry(structure, cfg.min_expiry))
+    results.append(g4_defined_risk(structure))
+    results.extend(g5_g6_liquidity(structure, chain, cfg["liquidity"]["max_rel_spread"]))
+    results.append(g7_structure_size(structure, qty, equity, r["per_structure_max_loss_frac"]))
+
+    cand_risk = 0.0
+    try:
+        cand_risk = structure.max_loss * qty / max(abs(l.qty) for l in structure.legs)
+    except ValueError:
+        pass
+    results.append(g9_daily_budget(new_risk_today, cand_risk, equity, r["daily_new_risk_frac"]))
+    results.append(g10_time_window(minutes_from_open, minutes_to_close,
+                                   cfg["timing"]["no_trade_first_min"],
+                                   cfg["timing"]["no_trade_last_min"], market_open))
+    results.append(g14_halt(equity, high_watermark, r["drawdown_halt_frac"]))
+    results.append(g17_event_derisk(asof, cfg.events(), cfg["events"]["derisk_hours_before"]))
+
+    iv_map = {sym: (s.get("impliedVolatility") or 0.20) for sym, s in chain.items()}
+    cand_legs = [Leg(l.contract, l.qty * qty, l.entry_price) for l in structure.legs]
+    g8, payoff = g8_portfolio_worst_case(book_legs, cand_legs, spot, asof,
+                                         cfg.judging_horizon, iv_map, equity, cfg,
+                                         realized_gains)
+    results.append(g8)
+    return GateReport(results=results, payoff=payoff)
