@@ -8,3 +8,4 @@ data/evidence/
 # journal + snapshots ARE committed: reconcile and replay need them
 !data/journal/
 !data/snapshots/
+data/tick.log
