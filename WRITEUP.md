@@ -67,15 +67,15 @@ below regenerates with one command.
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 269 | `python tools/reconcile.py` |
+| 01 | journal_entries | 311 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
-| 03 | ticks | 28 | `python tools/reconcile.py` |
+| 03 | ticks | 32 | `python tools/reconcile.py` |
 | 04 | gate_evaluations | 7 | `python tools/reconcile.py` |
 | 05 | entries_refused_by_gates | 2 | `python tools/reconcile.py` |
 | 06 | structures_total | 4 | `python tools/reconcile.py` |
-| 07 | structures_open | 4 | `python tools/reconcile.py` |
-| 08 | structures_closed | 0 | `python tools/reconcile.py` |
-| 09 | realized_pnl_usd | 0.00 | `python tools/reconcile.py` |
+| 07 | structures_open | 1 | `python tools/reconcile.py` |
+| 08 | structures_closed | 3 | `python tools/reconcile.py` |
+| 09 | realized_pnl_usd | 757.50 | `python tools/reconcile.py` |
 | 10 | book_worst_case_peak_usd | 1510 | `python tools/reconcile.py` |
 | 11 | order_transports_used | cli,dry_run,rest | `python tools/reconcile.py` |
 | 12 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |

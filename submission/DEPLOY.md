@@ -14,7 +14,8 @@
 Мне достаточно одной команды (`make snapshot-dashboard` + push) —
 Streamlit Cloud подхватит пуш и перезапустится сам.
 
-## Примечание
-Репозиторий сейчас приватный — Streamlit Cloud умеет деплоить приватные
-репо после GitHub-авторизации. В пятницу при переключении репо в public
-ничего менять не нужно.
+## Статус (1 сен)
+- Репозиторий `pip00sya/theta-desk` — **публичный** с 1 сентября
+- Дашборд задеплоен: https://theta-desk.streamlit.app (judge mode: `?judge=1`)
+- Обновление данных: `make snapshot-dashboard` → commit → push; Streamlit
+  Cloud подхватывает пуш и перезапускается сам

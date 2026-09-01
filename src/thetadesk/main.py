@@ -190,6 +190,10 @@ def cmd_tick(args) -> int:
                 journal.append("alt_underlying", {"underlying": alt, "spot": alt_spot,
                                                   "kind": cand.structure.kind})
                 break
+            # The attempt itself is evidence: a silent miss made a whole day of
+            # NO_CANDIDATE unexplainable (was the fallback even reached?).
+            journal.append("alt_underlying_none", {"underlying": alt, "spot": alt_spot,
+                                                   "contracts": len(alt_chain)})
 
     new_entry_made = False
     if cand is None:
