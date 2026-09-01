@@ -84,19 +84,19 @@ regime:
   vrp_cheap_threshold: 0.40     # score <  -> cheap-vol branch (micro long vega)
 
 llm:
-  # DEVLOG #11: Anthropic disabled (no credits on the account, user decision).
-  # All four roles run on Featherless open models. Independence of the
-  # analyst/second-opinion pair comes from DIFFERENT model families
-  # (Qwen vs Mistral), not different prompts on the same weights.
+  # DEVLOG #13: hybrid two-tier inference (Anthropic funded 2026-09-01).
+  # Deep roles on Claude; frequent/cheap roles on Featherless open models.
+  # The analyst/second-opinion pair is now CROSS-PROVIDER (Anthropic vs
+  # Featherless/Mistral) — the strongest form of the disagreement signal.
   # DEVLOG #10: Meta-Llama models are HF-gated on Featherless (403) — avoid.
-  analyst_provider: featherless
-  analyst_model: "Qwen/Qwen2.5-72B-Instruct"
+  analyst_provider: anthropic
+  analyst_model: "claude-sonnet-5"
   second_provider: featherless
   second_model: "mistralai/Mistral-Small-24B-Instruct-2501"
   vetoer_provider: featherless
   vetoer_model: "Qwen/Qwen2.5-7B-Instruct"
-  risk_provider: featherless
-  risk_model: "mistralai/Mistral-Small-24B-Instruct-2501"
+  risk_provider: anthropic
+  risk_model: "claude-sonnet-5"
   timeout_s: 45
   # Degraded mode: with no keys the desk falls back to deterministic
   # signals and conservative defaults; every fallback is journaled.

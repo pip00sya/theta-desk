@@ -12,20 +12,22 @@ realized volatility — with a deterministic score, and trades the spread
 between them: an iron-condor carry book when volatility is rich, a micro
 long-vega book when it is cheap.
 
-LLMs argue, veto and adapt; they never compute. Four roles run each cycle,
-all on open models served by Featherless AI: a Vol Analyst (Qwen2.5-72B)
-interprets the regime; an independent Second Opinion (Mistral-Small-24B — a
-different model FAMILY, so the disagreement signal is real, not the same
-weights behind two prompts) reads the same inputs blind; a News Vetoer
-(Qwen2.5-7B, cheap enough to run every tick) answers one question — "is
-there a qualitative reason NOT to sell premium today?"; a Risk Officer
-(Mistral-Small-24B) is a mandated devil's advocate against the day's
-candidate. Disagreement between the two regime reads halves position size;
-a veto stops new risk for the day; a high-severity objection halves size
-again. No model output can loosen a deterministic gate. A backup API key
-rotates in automatically on quota errors; with no keys at all the desk
-degrades to its deterministic core and journals every fallback. Claude
-drives the research loop through Alpaca's MCP server in Claude Code.
+LLMs argue, veto and adapt; they never compute. Four roles run each cycle
+in a two-tier inference economy: deep roles on Claude, frequent roles on
+open models via Featherless AI. A Vol Analyst (Claude Sonnet) interprets
+the regime; an independent Second Opinion (Mistral-Small-24B on
+Featherless) reads the same inputs blind — the pair is CROSS-PROVIDER, so
+the disagreement signal compares different labs, not two prompts on the
+same weights; a News Vetoer (Qwen2.5-7B, cheap enough to run every tick)
+answers one question — "is there a qualitative reason NOT to add risk
+today?"; a Risk Officer (Claude Sonnet) is a mandated devil's advocate
+against the day's candidate. Disagreement between the two regime reads
+halves position size; a veto stops new risk for the day; a high-severity
+objection halves size again. No model output can loosen a deterministic
+gate. A backup Featherless key rotates in automatically on quota errors;
+with no keys at all the desk degrades to its deterministic core and
+journals every fallback. Claude also drives the research loop through
+Alpaca's MCP server in Claude Code.
 
 ## 2. Risk gates
 
