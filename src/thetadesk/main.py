@@ -26,7 +26,8 @@ from .engine import selector as sel
 from .engine.contracts import Leg, Structure
 from .engine.gates import run_entry_gates
 from .execution import cli_bridge, idempotency, mleg
-from .manage.positions import integrity_check, legs_from_json, review_book, structure_mtm
+from .manage.positions import (integrity_check, legs_from_json, reconcile_closing,
+                               review_book, structure_mtm)
 from .shadow import books as shadow
 from .state.store import Store
 
@@ -121,6 +122,30 @@ def cmd_tick(args) -> int:
     }), encoding="utf-8")
     journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name})
 
+    # ---- reconcile working close orders (DEVLOG #19) ---------------------
+    # A close is CLOSED only when the broker says filled. Marking it closed on
+    # acceptance left an unfilled sell at the broker and a book that no longer
+    # knew about it -> integrity breach on every following tick.
+    closing = [s for s in store.open_structures() if s["status"] == "closing"]
+    if closing and not args.mock:
+        pend = {s["structure_id"]: json.loads(store.get_kv(f"close_order:{s['structure_id']}", "{}"))
+                for s in closing}
+        for ra in reconcile_closing(closing, pend, client.order_by_client_id, now,
+                                    cfg["timing"]["fill_wait_min"]):
+            journal.append("close_reconcile", ra.__dict__)
+            if ra.action == "closed":
+                store.set_status(ra.structure_id, "closed", ra.pnl)
+            elif ra.action == "cancel_revert":
+                try:
+                    client.cancel_order(ra.order_id)
+                except Exception as e:  # leave it 'closing'; next tick retries
+                    journal.append("close_cancel_failed", {"structure_id": ra.structure_id,
+                                                           "error": str(e)[:300]})
+                    continue
+                store.set_status(ra.structure_id, "open")
+            elif ra.action == "reverted":
+                store.set_status(ra.structure_id, "open")
+
     # ---- integrity + management -----------------------------------------
     open_structs = store.open_structures()
     ok, why = integrity_check(open_structs, client.positions() if not args.mock else [])
@@ -161,9 +186,14 @@ def cmd_tick(args) -> int:
             res = cli_bridge.submit(payload, client, dry_run=dry)
             journal.append("order_close", {"structure_id": s["structure_id"],
                                            "transport": res.transport, "ok": res.ok,
-                                           "error": res.error})
+                                           "error": res.error, "limit": round(close_px, 2)})
             if res.ok:
-                store.set_status(s["structure_id"], "closed", a.est_pnl)
+                # accepted != filled: park it as 'closing'; reconcile_closing
+                # settles it against the broker on the next tick (DEVLOG #19)
+                store.set_status(s["structure_id"], "closing")
+                store.set_kv(f"close_order:{s['structure_id']}", json.dumps({
+                    "client_order_id": coid, "est_pnl": a.est_pnl,
+                    "ts": now.isoformat(), "order_id": (res.order or {}).get("id")}))
         elif a.action == "close" and dry:
             store.set_status(a.structure_id, "closed", a.est_pnl)
 
@@ -247,7 +277,8 @@ def cmd_tick(args) -> int:
                 open_sleeve_debit = sum(
                     abs(s["net_credit"]) * 100 * s["qty"]
                     for s in store.open_structures()
-                    if s["status"] == "open" and s["net_credit"] < 0 and s["sleeve"] == "core")
+                    if s["status"] in ("open", "closing") and s["net_credit"] < 0
+                    and s["sleeve"] == "core")
                 book_legs = shadow.real_book_legs(store)
                 report = run_entry_gates(
                     structure=cand.structure, qty=qty, chain=chain,

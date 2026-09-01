@@ -89,8 +89,10 @@ class Store:
         self.conn.commit()
 
     def open_structures(self) -> list[dict]:
+        # 'closing' = close order accepted but not filled: still at the broker,
+        # still risk, still part of the book (DEVLOG #19)
         rows = self.conn.execute(
-            "SELECT * FROM structures WHERE status IN ('open','pending')").fetchall()
+            "SELECT * FROM structures WHERE status IN ('open','pending','closing')").fetchall()
         return [dict(r) for r in rows]
 
     def all_structures(self) -> list[dict]:

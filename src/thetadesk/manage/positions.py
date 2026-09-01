@@ -121,12 +121,82 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
     return actions
 
 
+@dataclass
+class ReconcileAction:
+    structure_id: str
+    action: str          # closed | cancel_revert | reverted | pending
+    reason: str
+    pnl: float | None = None
+    order_id: str | None = None
+
+
+BOOK_STATUSES = ("open", "closing")   # still at the broker either way
+
+_LIVE_ORDER = ("new", "accepted", "pending_new", "held", "accepted_for_bidding",
+               "partially_filled")
+_DEAD_ORDER = ("canceled", "expired", "rejected", "done_for_day", "replaced", "stopped")
+
+
+def reconcile_closing(closing: list[dict], pending: dict[str, dict], lookup,
+                      now: datetime, fill_wait_min: int) -> list[ReconcileAction]:
+    """DEVLOG #19: a structure is CLOSED only when the broker says filled.
+
+    `closing`  — structures whose close order was accepted (status 'closing')
+    `pending`  — structure_id -> {client_order_id, est_pnl, ts} from the kv store
+    `lookup`   — client_order_id -> broker order dict (or None)
+
+    filled            -> closed at the REAL fill price (not the decision-time mid)
+    dead at broker    -> reverted to open (the manager re-decides)
+    live > fill_wait  -> cancel + revert (a re-decision at the new mid is the reprice)
+    partially filled  -> wait (cancelling would split the structure)
+    """
+    out: list[ReconcileAction] = []
+    for s in closing:
+        sid = s["structure_id"]
+        po = pending.get(sid) or {}
+        coid = po.get("client_order_id") or s.get("client_order_id")
+        o = lookup(coid) if coid else None
+        if not o:
+            out.append(ReconcileAction(sid, "pending", f"order {coid} not found at broker — waiting"))
+            continue
+        st = o.get("status", "unknown")
+        oid = o.get("id")
+        if st == "filled":
+            fill = float(o.get("filled_avg_price") or 0)
+            credit, qty = s["net_credit"], s["qty"]
+            if fill > 0:
+                pnl = (fill - abs(credit)) * 100 * qty if credit < 0 else (credit - fill) * 100 * qty
+            else:
+                pnl = float(po.get("est_pnl") or 0.0)
+            out.append(ReconcileAction(sid, "closed", f"filled @ {fill:.2f}", round(pnl, 2), oid))
+        elif st in _DEAD_ORDER:
+            out.append(ReconcileAction(sid, "reverted", f"close order {st} at broker", None, oid))
+        elif st == "partially_filled":
+            out.append(ReconcileAction(sid, "pending", "partial fill — waiting", None, oid))
+        elif st in _LIVE_ORDER:
+            try:
+                sub = datetime.fromisoformat(str(po.get("ts") or o.get("submitted_at", "")).replace("Z", "+00:00"))
+                age_min = (now - sub).total_seconds() / 60
+            except ValueError:
+                age_min = fill_wait_min
+            if age_min >= fill_wait_min:
+                out.append(ReconcileAction(sid, "cancel_revert",
+                                           f"unfilled {age_min:.0f}m >= {fill_wait_min}m — cancel, re-decide",
+                                           None, oid))
+            else:
+                out.append(ReconcileAction(sid, "pending", f"unfilled {age_min:.0f}m — waiting", None, oid))
+        else:
+            out.append(ReconcileAction(sid, "pending", f"order status {st} — waiting", None, oid))
+    return out
+
+
 def integrity_check(open_structures: list[dict], broker_positions: list[dict]) -> tuple[bool, str]:
     """Broker is the source of truth. A naked short or an unknown position is
-    the ONLY trigger for flatten-all (RED-TEAM P5)."""
+    the ONLY trigger for flatten-all (RED-TEAM P5). A structure whose close
+    order is still working ('closing') is still at the broker and counts."""
     book_syms: dict[str, int] = {}
     for s in open_structures:
-        if s["status"] != "open":
+        if s["status"] not in BOOK_STATUSES:
             continue
         for leg in legs_from_json(s["legs_json"]):
             book_syms[leg.contract.symbol] = book_syms.get(leg.contract.symbol, 0) + leg.qty * s["qty"]

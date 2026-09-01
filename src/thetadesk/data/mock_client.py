@@ -57,6 +57,12 @@ class MockAlpacaClient:
     def cancel_order(self, order_id: str) -> None:
         pass
 
+    def order_by_client_id(self, client_order_id: str) -> dict | None:
+        for o in self.submitted:
+            if o.get("client_order_id") == client_order_id:
+                return {**o, "status": "filled", "filled_avg_price": o.get("limit_price")}
+        return None
+
     def portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> dict:
         return {"equity": [self.equity], "timestamp": [int(datetime.now(timezone.utc).timestamp())]}
 

@@ -68,6 +68,16 @@ class AlpacaClient:
     def cancel_order(self, order_id: str) -> None:
         self._req("DELETE", f"{TRADING}/v2/orders/{order_id}")
 
+    def order_by_client_id(self, client_order_id: str) -> dict | None:
+        """Fill status of one of OUR orders; None if the broker never saw it."""
+        try:
+            return self._req("GET", f"{TRADING}/v2/orders:by_client_order_id",
+                             params={"client_order_id": client_order_id})
+        except AlpacaError as e:
+            if "-> 404" in str(e):
+                return None
+            raise
+
     def portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> dict:
         return self._req("GET", f"{TRADING}/v2/account/portfolio/history",
                          params={"period": period, "timeframe": timeframe})

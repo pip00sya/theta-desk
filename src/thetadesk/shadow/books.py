@@ -55,7 +55,7 @@ def shadow_legs(store: Store, book: str, exclude_sleeve: str | None = None) -> l
 def real_book_legs(store: Store, exclude_sleeve: str | None = None) -> list[Leg]:
     legs: list[Leg] = []
     for s in store.open_structures():
-        if s["status"] != "open":
+        if s["status"] not in ("open", "closing"):   # closing = still at the broker
             continue
         if exclude_sleeve and s["sleeve"] == exclude_sleeve:
             continue
