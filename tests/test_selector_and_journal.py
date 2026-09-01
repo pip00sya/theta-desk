@@ -90,6 +90,16 @@ def test_every_regime_branch_can_fire():
     assert sel.build_hedge_put(entries, EXP, CFG["structures"]["hedge"], "2026-09-01") is not None
 
 
+def test_news_veto_blocks_selling_premium_not_buying():
+    """DEVLOG #25: 'no reason to add SHORT-premium risk' must not stop a long put."""
+    from thetadesk.agents.desk import DeskView, veto_applies
+    vetoed = DeskView("neutral", "neutral", False, True, "binary event", "", "low")
+    assert veto_applies(vetoed, net_credit=1.25)        # iron condor: blocked
+    assert not veto_applies(vetoed, net_credit=-3.74)   # long put: allowed
+    clear = DeskView("neutral", "neutral", False, False, "", "", "low")
+    assert not veto_applies(clear, net_credit=1.25)
+
+
 def test_session_date_is_new_york_not_host_local():
     """DEVLOG #18: the host's local midnight (UTC+5) falls an hour before the
     close; day keys must follow the exchange session."""

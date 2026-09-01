@@ -81,6 +81,14 @@ class DeskView:
         return d
 
 
+def veto_applies(view: "DeskView", net_credit: float) -> bool:
+    """DEVLOG #25: the vetoer answers 'any reason NOT to add SHORT-premium
+    risk?' — its veto blocks structures that SELL premium (net_credit > 0).
+    Buying convexity ahead of a binary event is exactly the right trade, so
+    a debit structure passes through with the veto journaled, not enforced."""
+    return bool(view.veto) and net_credit > 0
+
+
 def _det_regime(score: float, cfg: Config) -> str:
     if score >= cfg["regime"]["vrp_rich_threshold"]:
         return "rich"

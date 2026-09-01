@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from .safety import assert_paper_only
 from . import config as cfgmod
-from .agents.desk import run_desk
+from .agents.desk import run_desk, veto_applies
 from .audit import alerts
 from .audit.journal import Journal
 from .data import signals as sigmod
@@ -314,9 +314,15 @@ def cmd_tick(args) -> int:
         elif unfilled_before and attempts >= 1 + int(cfg["timing"]["reprice_retries"]):
             journal.append("entry_skipped_max_attempts", {"structure_id": sid,
                                                           "attempts": attempts})
-        elif desk.veto:
+        elif veto_applies(desk, cand.structure.net_credit):
             journal.append("desk_veto", {"reason": desk.veto_reason})
         else:
+            if desk.veto:
+                # DEVLOG #25: a news veto is about SELLING premium; this
+                # candidate buys it — recorded, not enforced
+                journal.append("desk_veto_waived", {"reason": desk.veto_reason,
+                                                    "kind": cand.structure.kind,
+                                                    "net_credit": cand.structure.net_credit})
             if unfilled_before:
                 h = float(cfg["timing"]["reprice_credit_haircut"])
                 before = cand.structure.net_credit
