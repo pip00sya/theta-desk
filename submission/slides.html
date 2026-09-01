@@ -1,0 +1,205 @@
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: 1600px 900px; margin: 0; }
+  body { font-family: "Segoe UI", -apple-system, sans-serif; color: #e8ecf4; }
+  .slide { width: 1600px; height: 900px; background: #0b0f1a; position: relative;
+           overflow: hidden; page-break-after: always; padding: 84px 96px;
+           display: flex; flex-direction: column; }
+  .grid { position: absolute; inset: 0;
+          background-image: linear-gradient(rgba(90,120,200,.06) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(90,120,200,.06) 1px, transparent 1px);
+          background-size: 48px 48px; }
+  .z { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100%; }
+  .kicker { font-size: 20px; letter-spacing: .16em; color: #7f96c9; text-transform: uppercase; }
+  h1 { font-size: 96px; font-weight: 800; margin-top: 14px;
+       background: linear-gradient(92deg, #fff 20%, #7aa2ff 80%);
+       -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  h2 { font-size: 56px; font-weight: 750; margin-top: 10px; color: #fff; }
+  h2 .a { color: #35e0b0; }
+  .sub { font-size: 30px; color: #b9c6e2; margin-top: 16px; font-weight: 300; max-width: 1250px; line-height: 1.45; }
+  .cols { display: flex; gap: 32px; margin-top: 44px; }
+  .card { background: rgba(20,28,48,.78); border: 1px solid rgba(122,162,255,.22);
+          border-radius: 16px; padding: 30px 34px; flex: 1; }
+  .card h3 { font-size: 28px; color: #7aa2ff; margin-bottom: 12px; }
+  .card p, .card li { font-size: 23px; color: #c7d2ea; line-height: 1.5; }
+  .card ul { margin-left: 26px; }
+  .big { font-size: 46px; color: #fff; font-weight: 700; }
+  .green { color: #35e0b0; } .blue { color: #7aa2ff; } .red { color: #ff7a7a; }
+  .foot { margin-top: auto; display: flex; justify-content: space-between;
+          font-size: 20px; color: #5d719d; padding-top: 28px; }
+  .flow { display: flex; align-items: stretch; gap: 14px; margin-top: 48px; }
+  .step { background: rgba(20,28,48,.78); border: 1px solid rgba(122,162,255,.22);
+          border-radius: 14px; padding: 22px 20px; flex: 1; text-align: center; }
+  .step b { display: block; font-size: 24px; color: #fff; margin-bottom: 8px; }
+  .step span { font-size: 19px; color: #8fa3cd; line-height: 1.35; display: block; }
+  .arrow { align-self: center; color: #35e0b0; font-size: 34px; }
+  .veto { border-color: rgba(53,224,176,.55); }
+  table { border-collapse: collapse; margin-top: 40px; width: 100%; }
+  th, td { text-align: left; padding: 16px 22px; font-size: 25px; }
+  th { color: #7f96c9; font-size: 21px; text-transform: uppercase; letter-spacing: .08em;
+       border-bottom: 2px solid rgba(122,162,255,.35); }
+  td { color: #d7e0f4; border-bottom: 1px solid rgba(122,162,255,.14); }
+  .mono { font-family: Consolas, monospace; }
+</style>
+
+<!-- 1. TITLE -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">Alpaca AI Trading Agents Hackathon · Team Qwertys · Aug 28 – Sep 4, 2026</div>
+  <h1>Θ THETA DESK</h1>
+  <div class="sub" style="font-size:40px">An autonomous options desk that prices <b style="color:#fff">volatility</b>, not direction.</div>
+  <div class="cols" style="margin-top:64px">
+    <div class="card"><div class="big">18</div><p>deterministic risk gates — LLMs cannot loosen a single one</p></div>
+    <div class="card"><div class="big">4</div><p>LLM roles that argue, veto and size — Claude + open models via Featherless</p></div>
+    <div class="big" style="display:none"></div>
+    <div class="card"><div class="big">100%</div><p>of decisions replay bit-for-bit from a hash-chained journal</p></div>
+    <div class="card"><div class="big">4</div><p>books running live: real + no-gates + no-hedge + naive baseline</p></div>
+  </div>
+  <div class="foot"><div>Alpaca Trading API · MCP Server · CLI — paper account PA39C10YAMYQ</div>
+  <div>github.com/pip00sya/theta-desk</div></div>
+</div></div>
+
+<!-- 2. THESIS -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">The thesis</div>
+  <h2>Over five days, price prediction is a <span class="red">coin flip</span>.<br>
+      The volatility risk premium is <span class="a">measurable</span>.</h2>
+  <div class="cols">
+    <div class="card"><h3>What everyone builds</h3>
+      <p>«LLM reads headlines → buys calls.» A directional bet over 5 days:
+      ~50% win rate, minus spread, minus theta. Negative expected value with
+      extra steps.</p></div>
+    <div class="card"><h3>What THETA DESK does</h3>
+      <p>Compares ATM implied volatility (Alpaca chain, free feed) against
+      20-day realized volatility — a deterministic VRP score. Rich vol →
+      sell iron condors, harvest theta. Cheap vol → buy convexity, micro-size.</p></div>
+    <div class="card"><h3>Day one proof</h3>
+      <p>The plan said «sell condors». The live signal said RV 13.9% &gt; IV 11.6%
+      — premium was cheap. The agent <b>went against our own plan</b> and bought
+      puts instead. The system follows the signal, not the narrative.</p></div>
+  </div>
+  <div class="foot"><div>Regime map: rich → condors · neutral → wider, half size · cheap → micro long vega · QQQ fallback</div></div>
+</div></div>
+
+<!-- 3. ARCHITECTURE -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">Architecture — one tick, every 15 minutes of the session</div>
+  <h2>LLMs decide <span class="a">whether it's wise</span>.<br>Code decides <span class="blue">whether it's allowed</span>.</h2>
+  <div class="flow">
+    <div class="step"><b>Data</b><span>chain + greeks + IV (free feed), 20d RV, positions, per-underlying spots</span></div>
+    <div class="arrow">→</div>
+    <div class="step veto"><b>Desk · 4 LLM roles</b><span>Vol Analyst (Claude) · Second Opinion (Mistral) · News Vetoer (Qwen) · Risk Officer (Claude). Disagreement → ×0.5 size. Veto → no new risk</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Selector</b><span>deterministic regime map picks the structure and delta-targets the strikes</span></div>
+    <div class="arrow">→</div>
+    <div class="step veto"><b>18 gates</b><span>incl. ★ portfolio payoff simulator — the desk's veto right</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Execution</b><span>mleg limit via Alpaca CLI, signed prices, idempotent order ids</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>Audit</b><span>hash-chained journal · snapshots · 4 books marked</span></div>
+  </div>
+  <div class="cols">
+    <div class="card"><h3>Management, every tick</h3>
+      <p>35% target on credit · +60% target on debit · realization policy on idle
+      days · NFP de-risk locks winners ≥ +15% the day before · drawdown = halt,
+      never panic-flatten.</p></div>
+    <div class="card"><h3>Sizing is earned</h3>
+      <p>Risk budgets grow only from <b>realized</b> gains: worst-case 6% → 8%,
+      long-premium sleeve 1.5% → 2.5%. The agent earns the right to take risk.</p></div>
+  </div>
+  <div class="foot"><div>Scheduler mirrors the exchange session · weekends silent · survives sleep &amp; battery</div></div>
+</div></div>
+
+<!-- 4. KILLER FEATURE -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">★ The veto right</div>
+  <h2>Before any order, the <span class="a">whole book</span> is repriced.</h2>
+  <div class="sub">Every open leg plus the candidate, over a ±20% underlying-price grid at the
+  judging horizon (deadline + 14 days — nothing expires while judges look), under a base and a
+  stressed-vol scenario, each leg priced off its own underlying's spot. If the worst grid P&amp;L
+  breaches budget — the order is never sent, and the refusal is journaled with the full grid.</div>
+  <div class="cols">
+    <div class="card"><h3>Why it matters</h3>
+      <p>This is a client-side implementation of the same worst-case principle as
+      <b>Alpaca's universal spread rule</b> for options margin — applied one step
+      earlier in the pipeline. We refuse orders before the broker ever could.</p></div>
+    <div class="card"><h3>Refusals are the product</h3>
+      <p>An agent that can decline to trade is the point. Every refusal is a
+      first-class journal entry: which gate, why, at what worst-case number.
+      The dashboard shows them next to the fills.</p></div>
+    <div class="card"><h3>Tested like an engine</h3>
+      <p>58 unit + property tests: condor worst case = one wing; hedge converts
+      the tail, not the plateau; random books never pass beyond budget; missing
+      spot raises instead of silently mispricing.</p></div>
+  </div>
+  <div class="foot"><div>engine/payoff.py · engine/gates.py — pure Python, no LLM anywhere near it</div></div>
+</div></div>
+
+<!-- 5. VERIFIABILITY -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">Trust, mechanically</div>
+  <h2>Every number <span class="a">regenerates</span>. Every decision <span class="a">replays</span>.</h2>
+  <div class="cols">
+    <div class="card"><h3>Hash-chained journal</h3>
+      <p class="mono" style="font-size:20px">entry_hash = sha256(ts + kind + data + prev_hash)</p>
+      <p style="margin-top:10px">Tamper-evident by construction. <span class="mono">verify-journal</span>
+      proves the chain; a single edited byte breaks it.</p></div>
+    <div class="card"><h3>Bit-for-bit replay</h3>
+      <p>Every tick stores its full input snapshot. <span class="mono">tools/replay.py</span>
+      re-runs the deterministic pipeline over the week and diffs each decision.
+      Current score: <b class="green">100% MATCH</b>.</p></div>
+    <div class="card"><h3>Claims reconciler</h3>
+      <p><span class="mono">tools/reconcile.py</span> recomputes every number in the
+      write-up from the journal — no credentials required. Evidence archive
+      snapshots account/orders/positions daily at the close.</p></div>
+  </div>
+  <div class="card" style="margin-top:36px"><h3>DEVLOG — 16 documented self-corrections</h3>
+    <p>The build found real things: Alpaca's mleg <b>limit price is signed</b>
+    (negative = credit — our abs() once turned «collect ≥ 3.40» into «pay ≤ 3.40»,
+    caught by a weekend acceptance test, fixed, upstream feedback written) ·
+    paper fills options against Friday quotes while closed · battery defaults
+    silently skip scheduled runs · a far-OTM hedge converts the tail, not the
+    worst case. Each one is in the repo with its fix and test.</p></div>
+  <div class="foot"><div>make verify = chain + replay + reconcile, one command, green</div></div>
+</div></div>
+
+<!-- 6. ABLATION -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">Live ablation — the dollar value of every design decision</div>
+  <h2>Four books. Same inputs. <span class="a">Different brains.</span></h2>
+  <table>
+    <tr><th>Book</th><th>What it is</th><th>P&amp;L (updated at submission)</th></tr>
+    <tr><td><b>real</b></td><td>the full agent: desk + 18 gates + management</td><td class="green"><b>+$321 → final on Friday</b></td></tr>
+    <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td>tracked live</td></tr>
+    <tr><td>shadow_nohedge</td><td>the real book minus its hedge sleeve</td><td>tracked live</td></tr>
+    <tr><td class="red">baseline_naive</td><td>«LLM reads a headline, buys ATM» — what a coin flip earns</td><td class="red"><b>−$98 … −$217 all week</b></td></tr>
+  </table>
+  <div class="sub" style="margin-top:36px">We didn't just claim the gates and the structure matter —
+  we ran the agent without them, on the same ticks, and published the gap.</div>
+  <div class="foot"><div>Marks carry net book greeks ($-delta / $-theta / $-vega) — the dashboard explains WHY the curve moved</div></div>
+</div></div>
+
+<!-- 7. RESULTS -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">Results — paper account PA39C10YAMYQ (final numbers in the submission)</div>
+  <h2>Small, <span class="a">explained</span>, and reproducible P&amp;L<br>beats a lucky coin flip.</h2>
+  <div class="cols">
+    <div class="card"><h3>The week in one story</h3>
+      <p>Day one: vol was cheap by our own measure — the agent bought convexity
+      instead of selling premium. The market then slid and vol richened; the
+      long-vega book paid. Every decision, refusal and fallback is in the
+      journal.</p></div>
+    <div class="card"><h3>Risk that never left the box</h3>
+      <p>Max structural loss per position ≤ 1.25% equity · book worst case
+      gate-capped at 6–8% · long-premium sleeve ≤ 1.5–2.5% (earned) ·
+      NFP-morning deadline entered with winners locked by rule.</p></div>
+    <div class="card"><h3>Built and operated by AI</h3>
+      <p>Designed, coded, red-teamed, debugged and run end-to-end by Claude
+      (Claude Code + Alpaca MCP), with 16 self-corrections documented in
+      DEVLOG.md. Disclosed openly.</p></div>
+  </div>
+  <div class="foot">
+    <div>Paper trading only · hypothetical results · not investment advice · options involve substantial risk (see OCC ODD)</div>
+    <div>Θ THETA DESK · Team Qwertys</div>
+  </div>
+</div></div>
