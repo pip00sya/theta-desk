@@ -25,6 +25,11 @@ structures:
     put_wing_width: 10.0
     call_wing_width: 10.0
     min_credit_frac_of_width: 0.18
+    # DEVLOG #17: the neutral branch widens strikes by 4 delta, which
+    # structurally collects ~30% less credit; with the base floor it could
+    # never fire (SPY $1.27-1.33 / QQQ $1.40 vs $1.80 all of Sep 1). 0.12 sits
+    # one spread below the observed band; 0.13 was a coin toss per tick.
+    neutral_min_credit_frac_of_width: 0.12
   put_credit_spread:
     short_delta: 0.17
     width: 10.0

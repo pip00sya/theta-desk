@@ -50,6 +50,40 @@ def test_cheap_vol_branch_goes_long_vega():
     assert cand.size_mult == 0.25
 
 
+def test_neutral_condor_uses_its_own_credit_floor():
+    """DEVLOG #17: the widened neutral condor collects less credit than the
+    base condor; it must be judged against its own floor, or the branch is dead."""
+    entries, _ = _entries(realized_scale=0.70)
+    condor = CFG["structures"]["condor"]
+    base = sel.build_iron_condor(entries, EXP, condor, "2026-09-01")
+    wide = sel.build_iron_condor(entries, EXP, condor, "2026-09-01", widen=0.04,
+                                 min_credit_frac=0.0)
+    assert base is not None and wide is not None
+    assert wide.net_credit < base.net_credit          # wider strikes -> less credit
+    # the floor is the only thing that can kill the wide condor
+    assert sel.build_iron_condor(entries, EXP, condor, "2026-09-01", widen=0.04,
+                                 min_credit_frac=0.99) is None
+    # select() routes the neutral regime through the neutral floor
+    neutral_score = 0.5 * (CFG["regime"]["vrp_cheap_threshold"]
+                           + CFG["regime"]["vrp_rich_threshold"])
+    structures = {**CFG["structures"],
+                  "condor": {**condor, "neutral_min_credit_frac_of_width": 0.0}}
+    cand = sel.select(entries, EXP, neutral_score, structures, CFG["regime"], "2026-09-01")
+    assert cand is not None and cand.regime == "neutral" and cand.size_mult == 0.5
+    assert cand.structure.structure_id == wide.structure_id
+    structures["condor"]["neutral_min_credit_frac_of_width"] = 0.99
+    assert sel.select(entries, EXP, neutral_score, structures, CFG["regime"], "2026-09-01") is None
+
+
+def test_session_date_is_new_york_not_host_local():
+    """DEVLOG #18: the host's local midnight (UTC+5) falls an hour before the
+    close; day keys must follow the exchange session."""
+    from datetime import datetime, timedelta, timezone
+    from thetadesk.main import _today
+    expect = (datetime.now(timezone.utc) - timedelta(hours=4)).date().isoformat()
+    assert _today() == expect
+
+
 def test_hedge_builder_targets_low_delta_put():
     entries, _ = _entries()
     h = sel.build_hedge_put(entries, EXP, CFG["structures"]["hedge"], "2026-08-31")

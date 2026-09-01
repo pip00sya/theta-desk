@@ -90,7 +90,12 @@ class Candidate:
 
 
 def build_iron_condor(entries: list[ChainEntry], expiry: date, cfg: dict,
-                      day: str, widen: float = 0.0) -> Structure | None:
+                      day: str, widen: float = 0.0,
+                      min_credit_frac: float | None = None) -> Structure | None:
+    """min_credit_frac overrides cfg["min_credit_frac_of_width"]; the neutral
+    branch passes its own floor because wider strikes collect less (DEVLOG #17)."""
+    if min_credit_frac is None:
+        min_credit_frac = cfg["min_credit_frac_of_width"]
     ex = [e for e in entries if e.expiry == expiry]
     sp = _nearest_by_delta(ex, "P", cfg["short_put_delta"] - widen)
     sc = _nearest_by_delta(ex, "C", cfg["short_call_delta"] - widen)
@@ -102,7 +107,7 @@ def build_iron_condor(entries: list[ChainEntry], expiry: date, cfg: dict,
         return None
     credit = (sp.mid + sc.mid) - (lp.mid + lc.mid)
     width = max(cfg["put_wing_width"], cfg["call_wing_width"])
-    if credit < cfg["min_credit_frac_of_width"] * width:
+    if credit < min_credit_frac * width:
         return None
     legs = [
         Leg(OptionContract.parse(sp.symbol), -1, sp.mid),
@@ -146,7 +151,10 @@ def select(entries: list[ChainEntry], expiry: date, score: float,
                              f"VRP score {score:.2f} >= {rich}: sell premium at base size")
         return None
     if score >= cheap:
-        s = build_iron_condor(entries, expiry, cfg_structures["condor"], day, widen=0.04)
+        c = cfg_structures["condor"]
+        s = build_iron_condor(entries, expiry, c, day, widen=0.04,
+                              min_credit_frac=c.get("neutral_min_credit_frac_of_width",
+                                                    c["min_credit_frac_of_width"]))
         if s:
             return Candidate(s, "neutral", 0.5,
                              f"VRP score {score:.2f} neutral: wider condor, half size")

@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from .safety import assert_paper_only
 from . import config as cfgmod
@@ -31,8 +31,15 @@ from .shadow import books as shadow
 from .state.store import Store
 
 
+SESSION_TZ_OFFSET = timedelta(hours=-4)   # New York, EDT — the whole window is DST
+
+
 def _today() -> str:
-    return date.today().isoformat()
+    """The SESSION date (New York), not the host's local date. The host runs
+    in UTC+5: its midnight is 19:00 UTC, an hour BEFORE the close, so daily
+    counters, structure-id days and the idle-day realization policy all
+    rolled over mid-session (DEVLOG #18)."""
+    return (datetime.now(timezone.utc) + SESSION_TZ_OFFSET).date().isoformat()
 
 
 def _clock_window(clock: dict) -> tuple[bool, float | None, float | None]:
