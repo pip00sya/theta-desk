@@ -90,7 +90,8 @@ def g7_structure_size(s: Structure, qty: int, equity: float, frac: float) -> Gat
                       {"risk": risk, "limit": limit})
 
 
-def g8_portfolio_worst_case(book_legs: list[Leg], cand_legs: list[Leg], spot: float,
+def g8_portfolio_worst_case(book_legs: list[Leg], cand_legs: list[Leg],
+                            spot: "float | dict[str, float]",
                             asof: datetime, horizon: datetime, iv_map: dict[str, float],
                             equity: float, cfg: Config,
                             realized_gains: float) -> tuple[GateResult, PayoffResult]:
@@ -147,17 +148,23 @@ def g14_halt(equity: float, high_watermark: float, frac: float) -> GateResult:
 
 
 def g18_sleeve_budget(structure: Structure, qty: int, open_sleeve_debit: float,
-                      equity: float, frac: float) -> GateResult:
+                      equity: float, frac: float, realized_gains: float = 0.0,
+                      gain_mult: float = 0.5, cap_frac: float = 0.025) -> GateResult:
     """DEVLOG #15: without a sleeve cap the cheap-vol branch can add one
     micro put per strike per day forever (min-viable-qty floors each at 1).
-    Total open long-premium debit is capped as a fraction of equity."""
+    Total open long-premium debit is capped as a fraction of equity.
+    DEVLOG #16: the cap is EARNED-scaled like g8 — realized gains extend it
+    (base + 0.5x gains, hard ceiling 2.5%). Winners compound only out of
+    banked profit, never out of fresh risk appetite."""
     if structure.net_credit > 0:
         return GateResult("g18_sleeve_budget", True, "credit structure — n/a")
     cand_debit = abs(structure.net_credit) * 100 * qty
-    limit = equity * frac
+    earned = realized_gains * gain_mult if realized_gains > 0 else 0.0
+    limit = min(equity * frac + earned, equity * cap_frac)
     total = open_sleeve_debit + cand_debit
     return GateResult("g18_sleeve_budget", total <= limit + 1e-6,
-                      f"long-premium sleeve ${total:,.0f} vs cap ${limit:,.0f} ({frac:.1%} eq)",
+                      f"long-premium sleeve ${total:,.0f} vs cap ${limit:,.0f}"
+                      + (f" (earned +${earned:,.0f})" if earned else ""),
                       {"open_debit": open_sleeve_debit, "cand_debit": cand_debit})
 
 
@@ -173,7 +180,7 @@ def g17_event_derisk(now: datetime, events: list[MacroEvent], hours_before: int)
 
 def run_entry_gates(
     *, structure: Structure, qty: int, chain: dict[str, dict],
-    book_legs: list[Leg], spot: float, asof: datetime,
+    book_legs: list[Leg], spot: "float | dict[str, float]", asof: datetime,
     equity: float, high_watermark: float, realized_gains: float,
     new_risk_today: float, cfg: Config,
     minutes_from_open: float | None, minutes_to_close: float | None, market_open: bool,
@@ -201,7 +208,10 @@ def run_entry_gates(
     results.append(g14_halt(equity, high_watermark, r["drawdown_halt_frac"]))
     results.append(g17_event_derisk(asof, cfg.events(), cfg["events"]["derisk_hours_before"]))
     results.append(g18_sleeve_budget(structure, qty, open_sleeve_debit, equity,
-                                     r.get("cheap_sleeve_budget_frac", 0.015)))
+                                     r.get("cheap_sleeve_budget_frac", 0.015),
+                                     realized_gains=realized_gains,
+                                     gain_mult=r["earned_budget_gain_mult"],
+                                     cap_frac=r.get("cheap_sleeve_budget_cap", 0.025)))
 
     iv_map = {sym: (s.get("impliedVolatility") or 0.20) for sym, s in chain.items()}
     cand_legs = [Leg(l.contract, l.qty * qty, l.entry_price) for l in structure.legs]

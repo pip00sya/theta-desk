@@ -36,9 +36,22 @@ def _leg_value(leg: Leg, spot: float, asof: datetime, horizon: datetime,
     return bs.price(spot, leg.contract.strike, exp_t, iv, leg.contract.right, r)
 
 
+def _spot_map(spot: "float | dict[str, float]", legs: list[Leg]) -> dict[str, float]:
+    """Accept a bare float (single-underlying book, backward compatible) or a
+    per-underlying map. Multi-underlying books stress all underlyings by the
+    SAME relative move — a perfect-correlation assumption, conservative for
+    an index pair like SPY/QQQ and stated openly in the write-up."""
+    if isinstance(spot, dict):
+        missing = {l.contract.underlying for l in legs} - set(spot)
+        if missing:
+            raise ValueError(f"spot_map missing underlyings: {sorted(missing)}")
+        return spot
+    return {u: float(spot) for u in {l.contract.underlying for l in legs}}
+
+
 def portfolio_worst_case(
     legs: list[Leg],
-    spot: float,
+    spot: "float | dict[str, float]",
     asof: datetime,
     horizon: datetime,
     iv_map: dict[str, float],
@@ -60,6 +73,7 @@ def portfolio_worst_case(
     """
     if not legs:
         return PayoffResult(0.0, 1.0, "base", [], [])
+    spots = _spot_map(spot, legs)
 
     grid_base: list[tuple[float, float]] = []
     grid_stress: list[tuple[float, float]] = []
@@ -67,12 +81,12 @@ def portfolio_worst_case(
 
     mult = grid_low
     while mult <= grid_high + 1e-9:
-        s = spot * mult
         pnl_b = 0.0
         pnl_s = 0.0
         down_frac = max(0.0, 1.0 - mult)            # 0 at spot, 0.2 at -20%
         shock = 1.0 + vol_shock_up_rel * (down_frac / 0.20)
         for leg in legs:
+            s = spots[leg.contract.underlying] * mult
             iv = iv_map.get(leg.contract.symbol, default_iv)
             vb = _leg_value(leg, s, asof, horizon, iv, r)
             vs = _leg_value(leg, s, asof, horizon, iv * shock, r)
@@ -95,15 +109,19 @@ def portfolio_worst_case(
     )
 
 
-def mark_to_model(legs: list[Leg], spot: float, asof: datetime,
+def mark_to_model(legs: list[Leg], spot: "float | dict[str, float]", asof: datetime,
                   iv_map: dict[str, float], r: float = 0.04,
                   default_iv: float = 0.20) -> float:
     """Model P&L of a leg set at current spot/IV (used by shadow books)."""
+    if not legs:
+        return 0.0
+    spots = _spot_map(spot, legs)
     pnl = 0.0
     for leg in legs:
+        s = spots[leg.contract.underlying]
         iv = iv_map.get(leg.contract.symbol, default_iv)
         t = leg.t_years(asof)
-        v = bs.price(spot, leg.contract.strike, t, iv, leg.contract.right, r) if t > 0 \
-            else bs.intrinsic(spot, leg.contract.strike, leg.contract.right)
+        v = bs.price(s, leg.contract.strike, t, iv, leg.contract.right, r) if t > 0 \
+            else bs.intrinsic(s, leg.contract.strike, leg.contract.right)
         pnl += leg.qty * (v - leg.entry_price) * MULTIPLIER
     return round(pnl, 2)

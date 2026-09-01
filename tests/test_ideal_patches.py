@@ -89,3 +89,38 @@ def test_g18_ignores_credit_structures():
     r = gates.g18_sleeve_budget(s, 1, open_sleeve_debit=99999.0,
                                 equity=100_000, frac=0.015)
     assert r.passed
+
+
+def test_g18_earned_extension_and_ceiling():
+    s = Structure("d", "cheap_vol_put", "core",
+                  [_leg("SPY260918P00750000", +1, 3.60)], net_credit=-3.60)
+    # 1400 + 360 = 1760 > 1500 base, but realized 600 -> limit 1500+300=1800: pass
+    r = gates.g18_sleeve_budget(s, 1, open_sleeve_debit=1400.0, equity=100_000,
+                                frac=0.015, realized_gains=600.0)
+    assert r.passed
+    # hard ceiling 2.5%: huge gains cannot push limit past $2,500
+    r2 = gates.g18_sleeve_budget(s, 1, open_sleeve_debit=2400.0, equity=100_000,
+                                 frac=0.015, realized_gains=50_000.0)
+    assert not r2.passed
+
+
+def test_payoff_multi_underlying_uses_own_spots():
+    from datetime import datetime, timezone
+    from thetadesk.engine.payoff import portfolio_worst_case
+    asof = datetime(2026, 9, 2, 15, 0, tzinfo=timezone.utc)
+    horizon = datetime(2026, 9, 18, 20, 0, tzinfo=timezone.utc)
+    legs = [
+        _leg("SPY260918P00754000", +1, 3.77),   # SPY spot 766
+        _leg("QQQ260918P00600000", +1, 3.00),   # QQQ spot 610
+    ]
+    iv = {l.contract.symbol: 0.15 for l in legs}
+    res = portfolio_worst_case(legs, {"SPY": 766.0, "QQQ": 610.0}, asof, horizon, iv)
+    # both are long puts: worst case = total debit paid (the OTM plateau —
+    # it starts as soon as both spots sit above their strikes at expiry)
+    assert abs(res.worst_pnl + (3.77 + 3.00) * 100) < 2.0
+    # sanity: at -20% both puts are deep ITM and the tail is strongly positive
+    assert res.grid_pnl_base[0][1] > 5_000
+    # missing underlying in the map must raise, not silently misprice
+    import pytest as _pt
+    with _pt.raises(ValueError):
+        portfolio_worst_case(legs, {"SPY": 766.0}, asof, horizon, iv)

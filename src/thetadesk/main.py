@@ -85,6 +85,21 @@ def cmd_tick(args) -> int:
     spot = 0.5 * (float(q.get("bp") or 0) + float(q.get("ap") or 0)) or (closes[-1] if closes else 0.0)
     now = datetime.now(timezone.utc)
 
+    # DEVLOG #16: the book may hold several underlyings — every one of them
+    # needs its own chain (marks, management, gates) and its own spot.
+    spot_map: dict[str, float] = {primary: spot}
+    book_underlyings = set()
+    for s in store.open_structures():
+        for d in json.loads(s["legs_json"]):
+            book_underlyings.add(d["symbol"][:next(i for i, ch in enumerate(d["symbol"]) if ch.isdigit())])
+    for u in sorted(book_underlyings - {primary}):
+        extra = client.option_chain(u, expiry)
+        chain.update(extra)
+        uq = client.latest_stock_quote(u)
+        us = 0.5 * (float(uq.get("bp") or 0) + float(uq.get("ap") or 0))
+        if us > 0:
+            spot_map[u] = us
+
     entries = sel.parse_chain(chain)
     signals = sigmod.compute(entries, closes, spot, cfg["regime"]["rv_lookback_days"])
     iv_map = {sym: (s.get("impliedVolatility") or 0.20) for sym, s in chain.items()}
@@ -149,6 +164,33 @@ def cmd_tick(args) -> int:
     exp_date = date.fromisoformat(expiry)
     cand = sel.select(entries, exp_date, signals.vrp, cfg["structures"], cfg["regime"], _today())
 
+    # DEVLOG #16: second-underlying fallback. When the primary's candidate
+    # fails the credit/liquidity floor (all-day NO_CANDIDATE in neutral
+    # regime), try QQQ — richer IV often clears the same floor. The regime
+    # score stays SPY-derived (indices are tightly correlated; stated in
+    # the write-up), and every gate incl. the multi-underlying payoff grid
+    # prices the combined book.
+    if cand is None:
+        for alt in [u for u in cfg.underlyings if u != primary][:1]:
+            alt_chain = client.option_chain(alt, expiry)
+            if not alt_chain:
+                continue
+            alt_q = client.latest_stock_quote(alt)
+            alt_spot = 0.5 * (float(alt_q.get("bp") or 0) + float(alt_q.get("ap") or 0))
+            if alt_spot <= 0:
+                continue
+            alt_entries = sel.parse_chain(alt_chain)
+            cand = sel.select(alt_entries, exp_date, signals.vrp,
+                              cfg["structures"], cfg["regime"], _today())
+            if cand is not None:
+                chain = {**chain, **alt_chain}
+                iv_map.update({sym: (s.get("impliedVolatility") or 0.20)
+                               for sym, s in alt_chain.items()})
+                spot_map[alt] = alt_spot
+                journal.append("alt_underlying", {"underlying": alt, "spot": alt_spot,
+                                                  "kind": cand.structure.kind})
+                break
+
     new_entry_made = False
     if cand is None:
         journal.append("no_candidate", {"vrp": signals.vrp,
@@ -198,7 +240,7 @@ def cmd_tick(args) -> int:
                 book_legs = shadow.real_book_legs(store)
                 report = run_entry_gates(
                     structure=cand.structure, qty=qty, chain=chain,
-                    book_legs=book_legs, spot=spot, asof=now, equity=equity,
+                    book_legs=book_legs, spot=spot_map, asof=now, equity=equity,
                     high_watermark=hwm, realized_gains=store.realized_gains(),
                     new_risk_today=store.get_counter(_today(), "new_risk"),
                     cfg=cfg, minutes_from_open=mins_from_open,
@@ -281,7 +323,7 @@ def cmd_tick(args) -> int:
     naive = shadow.baseline_naive_tick(store, chain, spot, headlines, _today())
     if naive:
         journal.append("baseline_naive_entry", {"symbol": naive})
-    marks = shadow.mark_all_books(store, spot, now, iv_map, store.realized_gains(),
+    marks = shadow.mark_all_books(store, spot_map, now, iv_map, store.realized_gains(),
                                   broker_equity=equity, chain=chain)
     journal.append("marks", marks)
 
