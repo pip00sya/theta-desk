@@ -28,3 +28,6 @@ reconcile-write:
 
 dashboard:
 	streamlit run dashboard/app.py
+
+snapshot-dashboard:
+	copy data\thetadesk.sqlite dashboard\state.sqlite

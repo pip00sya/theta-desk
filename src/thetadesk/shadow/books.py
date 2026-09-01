@@ -64,12 +64,29 @@ def real_book_legs(store: Store, exclude_sleeve: str | None = None) -> list[Leg]
     return legs
 
 
+def book_greeks_dollars(legs, chain: dict[str, dict]) -> tuple[float, float, float]:
+    """Net book greeks in dollar terms from broker-published greeks:
+    delta$ per $1 underlying move, theta$ per calendar day, vega$ per vol pt."""
+    d = t = v = 0.0
+    for leg in legs:
+        g = (chain.get(leg.contract.symbol) or {}).get("greeks") or {}
+        d += leg.qty * float(g.get("delta") or 0) * 100
+        t += leg.qty * float(g.get("theta") or 0) * 100
+        v += leg.qty * float(g.get("vega") or 0) * 100 / 100.0
+    return round(d, 2), round(t, 2), round(v, 2)
+
+
 def mark_all_books(store: Store, spot: float, asof: datetime,
-                   iv_map: dict[str, float], real_realized: float) -> dict[str, float]:
+                   iv_map: dict[str, float], real_realized: float,
+                   broker_equity: float | None = None,
+                   chain: dict[str, dict] | None = None) -> dict[str, float]:
     out: dict[str, float] = {}
 
-    real = mark_to_model(real_book_legs(store), spot, asof, iv_map)
-    store.add_mark("real", None, real, real_realized)
+    legs_real = real_book_legs(store)
+    real = mark_to_model(legs_real, spot, asof, iv_map)
+    gd, gt, gv = book_greeks_dollars(legs_real, chain or {})
+    store.add_mark("real", broker_equity, real, real_realized,
+                   theta=gt, delta=gd, vega=gv)
     out["real"] = real + real_realized
 
     nogates = mark_to_model(shadow_legs(store, "shadow_nogates"), spot, asof, iv_map)

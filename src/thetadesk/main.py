@@ -109,8 +109,15 @@ def cmd_tick(args) -> int:
         return 2
 
     entries_today = int(store.get_counter(_today(), "entries"))
+    from .engine.gates import g17_event_derisk
+    derisk = not g17_event_derisk(now, cfg.events(),
+                                  cfg["events"]["derisk_hours_before"]).passed
+    if derisk:
+        journal.append("derisk_mode", {"reason": "high-class event inside window"})
     actions = review_book([s for s in open_structs if s["status"] == "open"], chain,
-                          cfg["management"], now, entries_today, cfg.min_expiry)
+                          cfg["management"], now, entries_today, cfg.min_expiry,
+                          derisk_mode=derisk,
+                          derisk_lock_frac=cfg["events"].get("derisk_lock_profit_frac", 0.15))
     for a in actions:
         journal.append("manage", a.__dict__)
         if a.action == "close" and not dry:
@@ -184,6 +191,10 @@ def cmd_tick(args) -> int:
                                              "budget": per_struct_budget,
                                              "mults": [cand.size_mult, desk.size_mult]})
             else:
+                open_sleeve_debit = sum(
+                    abs(s["net_credit"]) * 100 * s["qty"]
+                    for s in store.open_structures()
+                    if s["status"] == "open" and s["net_credit"] < 0 and s["sleeve"] == "core")
                 book_legs = shadow.real_book_legs(store)
                 report = run_entry_gates(
                     structure=cand.structure, qty=qty, chain=chain,
@@ -192,6 +203,7 @@ def cmd_tick(args) -> int:
                     new_risk_today=store.get_counter(_today(), "new_risk"),
                     cfg=cfg, minutes_from_open=mins_from_open,
                     minutes_to_close=mins_to_close, market_open=is_open,
+                    open_sleeve_debit=open_sleeve_debit,
                 )
                 journal.append("gates", {"structure_id": cand.structure.structure_id,
                                          "kind": cand.structure.kind, "qty": qty,
@@ -269,7 +281,8 @@ def cmd_tick(args) -> int:
     naive = shadow.baseline_naive_tick(store, chain, spot, headlines, _today())
     if naive:
         journal.append("baseline_naive_entry", {"symbol": naive})
-    marks = shadow.mark_all_books(store, spot, now, iv_map, store.realized_gains())
+    marks = shadow.mark_all_books(store, spot, now, iv_map, store.realized_gains(),
+                                  broker_equity=equity, chain=chain)
     journal.append("marks", marks)
 
     journal.append("tick_end", {"entry_made": new_entry_made})

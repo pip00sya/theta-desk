@@ -50,7 +50,13 @@ def structure_mtm(legs: list[Leg], chain: dict[str, dict]) -> float | None:
 
 def review_book(open_structures: list[dict], chain: dict[str, dict],
                 cfg_mgmt: dict, now: datetime, entries_today: int,
-                min_expiry: str) -> list[ManageAction]:
+                min_expiry: str, derisk_mode: bool = False,
+                derisk_lock_frac: float = 0.15) -> list[ManageAction]:
+    """DEVLOG #15: exits exist for BOTH directions of premium.
+      credit structures: 35% profit target, 2x credit stop
+      debit structures:  +60% of debit target (vol spikes mean-revert),
+                         no stop-loss (loss already bounded by the debit)
+    derisk_mode (inside a high-event window): lock anything >= +15%."""
     actions: list[ManageAction] = []
     realize_candidates: list[tuple[float, dict, float]] = []
 
@@ -77,8 +83,21 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
                                             f"structure stop: loss {mtm:,.0f} vs credit "
                                             f"{credit * 100 * qty:,.0f}", mtm))
                 continue
-            if frac >= cfg_mgmt["realize_min_frac"]:
-                realize_candidates.append((frac, s, mtm))
+        else:  # debit (long-premium) structure
+            cost = abs(credit) * 100 * qty
+            frac = mtm / cost if cost > 0 else 0.0
+            target = cfg_mgmt.get("debit_profit_target_frac", 0.60)
+            if frac >= target:
+                actions.append(ManageAction(s["structure_id"], "close",
+                                            f"debit profit target: +{frac:.0%} of cost", mtm))
+                continue
+
+        if derisk_mode and frac >= derisk_lock_frac:
+            actions.append(ManageAction(s["structure_id"], "close",
+                                        f"event de-risk: locking +{frac:.0%} before release", mtm))
+            continue
+        if frac >= cfg_mgmt["realize_min_frac"]:
+            realize_candidates.append((frac, s, mtm))
 
         # time stop (post-submission safety net)
         dtes = [(l.contract.expiry - now.date()).days for l in legs]

@@ -23,7 +23,10 @@ from thetadesk.state.store import Store             # noqa: E402
 st.set_page_config(page_title="THETA DESK", page_icon="O", layout="wide")
 
 cfg = cfgmod.load()
-store = Store(cfg.db_path)
+# Cloud deploy fallback: a committed snapshot of the DB lives next to the app
+# (refreshed by `make snapshot-dashboard` before each push).
+db_path = cfg.db_path if cfg.db_path.exists() else Path(__file__).parent / "state.sqlite"
+store = Store(db_path)
 journal = Journal(cfg.journal_dir)
 entries = journal.read_all()
 
@@ -69,6 +72,19 @@ with tab_eq:
         cols = st.columns(len(frames))
         for col, (name, val) in zip(cols, last.items()):
             col.metric(name, f"${val:,.0f}")
+        real_marks = store.marks("real")
+        with_greeks = [m for m in real_marks if m["theta"] or m["delta"] or m["vega"]]
+        if with_greeks:
+            st.subheader("Book greeks (dollar terms)")
+            note("Net desk exposures from broker-published greeks: delta$ per $1 "
+                 "SPY move, theta$ per day, vega$ per vol point. This is the "
+                 "attribution language: you can see WHY the curve moved.")
+            gdf = pd.DataFrame(
+                {"delta $/1pt": [m["delta"] for m in with_greeks],
+                 "theta $/day": [m["theta"] for m in with_greeks],
+                 "vega $/volpt": [m["vega"] for m in with_greeks]},
+                index=pd.to_datetime([m["ts"] for m in with_greeks]))
+            st.line_chart(gdf)
     else:
         st.write("No marks yet — run a tick.")
 

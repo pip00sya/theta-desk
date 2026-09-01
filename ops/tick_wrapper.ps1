@@ -15,10 +15,11 @@ Get-Content "$repo\.env" | ForEach-Object {
 $env:PYTHONPATH = "$repo\src"
 python -m thetadesk.main tick 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
 
-# Evidence archive once per day after the close (20:05-20:35 UTC window)
+# Evidence archive + agent's daily note once per day after the close
 if ($utc.Hour -eq 20 -and $utc.Minute -ge 5) {
   $stamp = $utc.ToString('yyyy-MM-dd')
   if (-not (Test-Path "$repo\data\evidence\$stamp")) {
     python -m thetadesk.audit.evidence 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
+    python "$repo\tools\daily_note.py" 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
   }
 }

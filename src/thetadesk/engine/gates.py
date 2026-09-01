@@ -146,6 +146,21 @@ def g14_halt(equity: float, high_watermark: float, frac: float) -> GateResult:
                       {"drawdown": dd})
 
 
+def g18_sleeve_budget(structure: Structure, qty: int, open_sleeve_debit: float,
+                      equity: float, frac: float) -> GateResult:
+    """DEVLOG #15: without a sleeve cap the cheap-vol branch can add one
+    micro put per strike per day forever (min-viable-qty floors each at 1).
+    Total open long-premium debit is capped as a fraction of equity."""
+    if structure.net_credit > 0:
+        return GateResult("g18_sleeve_budget", True, "credit structure — n/a")
+    cand_debit = abs(structure.net_credit) * 100 * qty
+    limit = equity * frac
+    total = open_sleeve_debit + cand_debit
+    return GateResult("g18_sleeve_budget", total <= limit + 1e-6,
+                      f"long-premium sleeve ${total:,.0f} vs cap ${limit:,.0f} ({frac:.1%} eq)",
+                      {"open_debit": open_sleeve_debit, "cand_debit": cand_debit})
+
+
 def g17_event_derisk(now: datetime, events: list[MacroEvent], hours_before: int) -> GateResult:
     for e in events:
         if e.klass != "high":
@@ -162,6 +177,7 @@ def run_entry_gates(
     equity: float, high_watermark: float, realized_gains: float,
     new_risk_today: float, cfg: Config,
     minutes_from_open: float | None, minutes_to_close: float | None, market_open: bool,
+    open_sleeve_debit: float = 0.0,
 ) -> GateReport:
     """Full wall, ordered cheap -> expensive. Stops nothing early on purpose:
     ALL gate results are computed and journaled so refusals are explainable."""
@@ -184,6 +200,8 @@ def run_entry_gates(
                                    cfg["timing"]["no_trade_last_min"], market_open))
     results.append(g14_halt(equity, high_watermark, r["drawdown_halt_frac"]))
     results.append(g17_event_derisk(asof, cfg.events(), cfg["events"]["derisk_hours_before"]))
+    results.append(g18_sleeve_budget(structure, qty, open_sleeve_debit, equity,
+                                     r.get("cheap_sleeve_budget_frac", 0.015)))
 
     iv_map = {sym: (s.get("impliedVolatility") or 0.20) for sym, s in chain.items()}
     cand_legs = [Leg(l.contract, l.qty * qty, l.entry_price) for l in structure.legs]
