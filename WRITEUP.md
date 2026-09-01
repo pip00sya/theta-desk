@@ -31,8 +31,8 @@ Alpaca's MCP server in Claude Code.
 
 ## 2. Risk gates
 
-Seventeen gates, all pure Python, orchestrated in `engine/gates.py` and unit-
-and property-tested. The central one: before any order, the ENTIRE book plus
+Eighteen gates, all pure Python, orchestrated in `engine/gates.py` and unit-
+and property-tested (incl. an earned-scaled cap on the long-premium sleeve). The central one: before any order, the ENTIRE book plus
 the candidate is repriced over a ±20% underlying-price grid at the judging
 horizon (deadline + 14 days), under base and stressed-vol scenarios; if the
 worst grid P&L breaches the budget (6% of equity, extendable to 8% only by
