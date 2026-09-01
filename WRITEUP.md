@@ -70,9 +70,9 @@ below regenerates with one command.
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 354 | `python tools/reconcile.py` |
+| 01 | journal_entries | 362 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
-| 03 | ticks | 37 | `python tools/reconcile.py` |
+| 03 | ticks | 38 | `python tools/reconcile.py` |
 | 04 | gate_evaluations | 8 | `python tools/reconcile.py` |
 | 05 | entries_refused_by_gates | 3 | `python tools/reconcile.py` |
 | 06 | structures_total | 4 | `python tools/reconcile.py` |
@@ -82,7 +82,9 @@ below regenerates with one command.
 | 10 | realized_pnl_per_broker_fills_usd | 764.00 | `python tools/reconcile.py` |
 | 11 | book_worst_case_peak_usd | 1510 | `python tools/reconcile.py` |
 | 12 | order_transports_used | cli,dry_run,rest | `python tools/reconcile.py` |
-| 13 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
+| 13 | orders_submitted_live | 8 | `python tools/reconcile.py` |
+| 14 | orders_rejected_at_submit | 0 | `python tools/reconcile.py` |
+| 15 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 <!-- CLAIMS:END -->
 
 *Paper trading simulation only. Hypothetical results, no real funds, not

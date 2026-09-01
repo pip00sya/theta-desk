@@ -73,7 +73,10 @@ class Store:
                VALUES (?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(structure_id) DO UPDATE SET
                  status=excluded.status, order_id=excluded.order_id,
-                 client_order_id=excluded.client_order_id""",
+                 client_order_id=excluded.client_order_id,
+                 qty=excluded.qty, legs_json=excluded.legs_json,
+                 net_credit=excluded.net_credit, max_loss=excluded.max_loss,
+                 opened_utc=excluded.opened_utc""",
             (sid, kind, sleeve, qty, legs_json, net_credit, max_loss, status,
              now, order_id, client_order_id))
         self.conn.commit()

@@ -48,6 +48,26 @@ def structure_mtm(legs: list[Leg], chain: dict[str, dict]) -> float | None:
     return pnl
 
 
+def structure_close_price(legs: list[Leg], chain: dict[str, dict],
+                          cross: bool = False) -> float | None:
+    """Per-unit package price to close the structure: > 0 we receive (debit
+    structures), < 0 we pay (credit structures). cross=True takes the market
+    — sell the longs at the bid, buy the shorts back at the ask — instead of
+    the mid (DEVLOG #27: a mid limit that missed once is resubmitted at the
+    market, not at a fresh mid it can miss again). None if any leg is
+    unquoted."""
+    total = 0.0
+    for leg in legs:
+        q = (chain.get(leg.contract.symbol) or {}).get("latestQuote") or {}
+        bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
+        if bid <= 0 or ask <= 0:
+            return None
+        mid = 0.5 * (bid + ask)
+        px = (bid if leg.qty > 0 else ask) if cross else mid
+        total += leg.qty * px
+    return round(total, 4)
+
+
 def review_book(open_structures: list[dict], chain: dict[str, dict],
                 cfg_mgmt: dict, now: datetime, entries_today: int,
                 min_expiry: str, derisk_mode: bool = False,

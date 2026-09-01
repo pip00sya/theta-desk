@@ -104,6 +104,22 @@ def test_integrity_knows_pending_symbols_and_reports_drift():
     assert not ok and "unknown" in why
 
 
+def test_structure_close_price_mid_vs_cross():
+    """DEVLOG #27: retry a missed close AT the market."""
+    from thetadesk.engine.contracts import Leg, OptionContract
+    from thetadesk.manage.positions import structure_close_price
+    chain = {"SPY260918P00620000": {"latestQuote": {"bp": 2.00, "ap": 2.10}},
+             "SPY260918P00610000": {"latestQuote": {"bp": 1.00, "ap": 1.08}}}
+    long_put = [Leg(OptionContract.parse("SPY260918P00620000"), 1, 1.50)]
+    assert structure_close_price(long_put, chain) == 2.05            # sell at mid
+    assert structure_close_price(long_put, chain, cross=True) == 2.00  # sell at bid
+    spread = [Leg(OptionContract.parse("SPY260918P00620000"), -1, 3.00),
+              Leg(OptionContract.parse("SPY260918P00610000"), 1, 1.80)]
+    assert structure_close_price(spread, chain) == round(-2.05 + 1.04, 4)          # pay mid net
+    assert structure_close_price(spread, chain, cross=True) == round(-2.10 + 1.00, 4)  # buy at ask, sell at bid
+    assert structure_close_price(spread, {"SPY260918P00620000": chain["SPY260918P00620000"]}) is None
+
+
 def test_realization_policy_only_in_last_hour():
     """DEVLOG #24: 'idle day' cannot be known at the open."""
     from thetadesk import config as cfgmod

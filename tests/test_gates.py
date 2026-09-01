@@ -54,6 +54,15 @@ def test_clean_condor_passes_all_gates():
     assert r.passed, r.first_failure
 
 
+def test_g3_refuses_entries_the_time_stop_would_close_next_tick():
+    """DEVLOG #26: post-deadline churn — open at DTE 6, time-stop at DTE 6."""
+    s = _condor()   # all legs expire 2026-09-18
+    assert gates.g3_expiry(s, "2026-09-18", ASOF, 10).passed                       # 18 DTE
+    late = gates.g3_expiry(s, "2026-09-18", datetime(2026, 9, 10, 15, tzinfo=timezone.utc), 10)
+    assert not late.passed and "DTE" in late.reason                                # 8 DTE
+    assert gates.g3_expiry(s, "2026-09-18", datetime(2026, 9, 8, 15, tzinfo=timezone.utc), 10).passed
+
+
 def test_g19_rejects_stale_or_untimestamped_feed():
     """DEVLOG #22: feed liveness from the ATM strip, not per leg."""
     from datetime import timedelta

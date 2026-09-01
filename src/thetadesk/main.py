@@ -30,7 +30,7 @@ from .engine.gates import run_entry_gates
 from .execution import cli_bridge, idempotency, mleg
 from .manage.positions import (apply_fills, integrity_check, legs_from_json,
                                reconcile_closing, reconcile_pending, review_book,
-                               structure_mtm)
+                               structure_close_price)
 from .shadow import books as shadow
 from .state.store import Store
 
@@ -222,8 +222,17 @@ def cmd_tick(args) -> int:
             st = Structure(s["structure_id"], s["kind"], s["sleeve"], legs, s["net_credit"])
             attempt = idempotency.next_attempt(store, s["structure_id"] + ":close", _today())
             coid = idempotency.client_order_id(s["structure_id"] + ":close", _today(), attempt)
-            mid_now = structure_mtm(legs, chain)
-            close_px = abs(s["net_credit"] - (mid_now or 0) / (100 * s["qty"]))
+            # first try at the mid; a resubmission after an unfilled close
+            # takes the market (DEVLOG #27) — we want OUT, not a better print
+            cross = attempt >= 2
+            pkg = structure_close_price(legs, chain, cross=cross)
+            if pkg is None:
+                journal.append("close_skipped_unquoted", {"structure_id": s["structure_id"]})
+                continue
+            close_px = abs(pkg)
+            if cross:
+                journal.append("close_cross_spread", {"structure_id": s["structure_id"],
+                                                      "attempt": attempt, "limit": round(close_px, 2)})
             if len(legs) == 1:
                 l = legs[0]
                 payload = mleg.single_leg_payload(

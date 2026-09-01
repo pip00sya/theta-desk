@@ -57,11 +57,22 @@ def g2_universe(s: Structure, allowed: list[str]) -> GateResult:
                       "ok" if not bad else f"underlying(s) {sorted(bad)} outside {allowed}")
 
 
-def g3_expiry(s: Structure, min_expiry: str) -> GateResult:
-    """Patched: every leg expires on/after min_expiry (judging-horizon safe)."""
+def g3_expiry(s: Structure, min_expiry: str, asof: datetime | None = None,
+              min_dte: int = 0) -> GateResult:
+    """Patched: every leg expires on/after min_expiry (judging-horizon safe).
+    DEVLOG #26: and at least min_dte days out — otherwise the DTE<7 time stop
+    would close a fresh entry on the very next tick (post-deadline churn:
+    open at DTE 6, close at DTE 6, pay the spread, repeat until expiry)."""
     early = [l.contract.symbol for l in s.legs if l.contract.expiry.isoformat() < min_expiry]
-    return GateResult("g3_expiry", not early,
-                      "ok" if not early else f"legs expire before {min_expiry}: {early}")
+    if early:
+        return GateResult("g3_expiry", False, f"legs expire before {min_expiry}: {early}")
+    if asof is not None and min_dte:
+        short = [f"{l.contract.symbol} ({(l.contract.expiry - asof.date()).days}d)"
+                 for l in s.legs if (l.contract.expiry - asof.date()).days < min_dte]
+        if short:
+            return GateResult("g3_expiry", False,
+                              f"legs inside {min_dte} DTE — the time stop would close them next tick: {short}")
+    return GateResult("g3_expiry", True, "ok")
 
 
 def g4_defined_risk(s: Structure) -> GateResult:
@@ -229,7 +240,9 @@ def run_entry_gates(
     r = cfg["risk"]
     results: list[GateResult] = []
     results.append(g2_universe(structure, cfg.underlyings))
-    results.append(g3_expiry(structure, cfg.min_expiry))
+    m = cfg["management"]
+    results.append(g3_expiry(structure, cfg.min_expiry, asof,
+                             int(m.get("min_entry_dte", m["time_stop_dte"] + 3))))
     results.append(g4_defined_risk(structure))
     results.extend(g5_g6_liquidity(structure, chain, cfg["liquidity"]["max_rel_spread"]))
     results.append(g19_feed_freshness(chain, spot, asof,

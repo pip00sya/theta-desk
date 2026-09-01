@@ -37,6 +37,12 @@ def compute_claims() -> dict[str, str]:
     refused = [e["data"] for e in entries if e["kind"] == "entry_refused"]
     orders_open = [e["data"] for e in entries if e["kind"] == "order_open"]
     transports = sorted({o.get("transport") for o in orders_open if o.get("ok")})
+    # "zero rejected orders" must be a number, not a sentence: every live
+    # submission the broker/CLI refused is an order_* entry with ok=False
+    orders_live = [e["data"] for e in entries
+                   if e["kind"] in ("order_open", "order_close", "order_hedge")
+                   and e["data"].get("transport") != "dry_run"]
+    orders_rejected = sum(1 for o in orders_live if not o.get("ok"))
     structs = store.all_structures()
     worst_cases = [g["worst_case"]["pnl"] for g in gates
                    if g.get("worst_case") and g["worst_case"].get("pnl") is not None]
@@ -63,6 +69,8 @@ def compute_claims() -> dict[str, str]:
         "realized_pnl_per_broker_fills_usd": broker_realized,
         "book_worst_case_peak_usd": f"{-min(worst_cases):.0f}" if worst_cases else "0",
         "order_transports_used": ",".join(transports) or "none",
+        "orders_submitted_live": str(len(orders_live)),
+        "orders_rejected_at_submit": str(orders_rejected),
         "llm_fallbacks_recorded": str(len(fallbacks)),
     }
 
