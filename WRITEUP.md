@@ -67,9 +67,9 @@ below regenerates with one command.
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 179 | `python tools/reconcile.py` |
+| 01 | journal_entries | 269 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
-| 03 | ticks | 19 | `python tools/reconcile.py` |
+| 03 | ticks | 28 | `python tools/reconcile.py` |
 | 04 | gate_evaluations | 7 | `python tools/reconcile.py` |
 | 05 | entries_refused_by_gates | 2 | `python tools/reconcile.py` |
 | 06 | structures_total | 4 | `python tools/reconcile.py` |

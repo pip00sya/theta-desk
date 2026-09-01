@@ -27,7 +27,18 @@ Every decision is a hash-chained journal entry; the whole week replays bit-for-b
 **Event Tracks:** Options Alpha Agents
 **Technologies Used:** Alpaca, Featherless, Claude Code, Python, Streamlit, SQLite
 
-**Social Media Post Link 1–5:** добавить по мере публикации постов
+**Social Media Post Link 1–5:**
+1. https://x.com/nnutlanrt/status/2094813503999943071 (X, пост №1 — опубликован 2 сен)
+2. https://www.linkedin.com/feed/update/urn:li:share:7500579705809592320/ (LinkedIn, пост №1 — опубликован 2 сен)
+3. https://x.com/nnutlanrt/status/2094828957246144643 (X, пост №2 с карточкой «agent vs coin flip» — 2 сен)
+4. https://lnkd.in/p/dPqeCdjf (LinkedIn, пост №2 с карточкой — 2 сен)
+5. https://lnkd.in/p/d5z22VuY (LinkedIn, пост Бердиали с карточкой — 2 сен)
+
+СТРАТЕГИЯ (решение Нурхана 02.09): команда продолжает постить всю неделю
+без ограничений; 5 ссылок выше — предварительные. В пятницу перед сабмитом
+собрать ВСЕ посты команды (Нурхан, Шахназар, Бердиали), сравнить охват
+(лайки+комменты+репосты+просмотры) и вписать в форму 5 сильнейших.
+Напоминание себе: спросить у Нурхана ссылки на новые посты в пятницу утром.
 
 ## Step 2 — Media (день 5)
 - Cover image: PNG/JPG 16:9 — TODO
@@ -35,7 +46,8 @@ Every decision is a hash-chained journal entry; the whole week replays bit-for-b
 - Slides: PDF — TODO
 
 ## Step 3 — Technical
-- GitHub: TODO (сделать публичным при сабмите)
+- GitHub: https://github.com/pip00sya/theta-desk ✅ (публичный со 2 сен)
 - Demo Platform: Streamlit
-- Demo URL: TODO (деплой дашборда)
+- Demo URL: https://theta-desk.streamlit.app ✅ (задеплоен 2 сен)
+- Judge Mode: https://theta-desk.streamlit.app/?judge=1
 - **Alpaca paper account ID: PA39C10YAMYQ** ← в поле Additional Information / отдельное поле

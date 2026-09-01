@@ -1,0 +1,39 @@
+<meta charset="utf-8"><style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { width:1600px; height:900px; overflow:hidden; background:#0b0f1a; color:#e8ecf4;
+       font-family:'Segoe UI',sans-serif; position:relative; padding:76px 90px; }
+.grid { position:absolute; inset:0;
+  background-image:linear-gradient(rgba(90,120,200,.07) 1px, transparent 1px),
+                   linear-gradient(90deg, rgba(90,120,200,.07) 1px, transparent 1px);
+  background-size:48px 48px; }
+.z { position:relative; z-index:2; }
+.k { font-size:21px; letter-spacing:.16em; color:#7f96c9; text-transform:uppercase; }
+h1 { font-size:66px; font-weight:800; margin-top:10px; color:#fff; }
+h1 b { background:linear-gradient(92deg,#7aa2ff,#35e0b0); -webkit-background-clip:text;
+       -webkit-text-fill-color:transparent; }
+.leg { display:flex; gap:46px; margin:26px 0 6px; }
+.leg div { display:flex; align-items:center; gap:12px; font-size:27px; color:#c7d2ea; }
+.sw { width:38px; height:7px; border-radius:4px; }
+.foot { position:absolute; bottom:56px; left:90px; right:90px; display:flex;
+        justify-content:space-between; font-size:23px; color:#6d81ad; z-index:2 }
+.foot b { color:#b9c6e2; }
+</style>
+<div class="grid"></div><div class="z">
+<div class="k">Θ THETA DESK · autonomous options desk · day 3 of the Alpaca AI Trading Agents Hackathon</div>
+<h1>Our agent <b>vs</b> the coin flip — live, same inputs</h1>
+<div class="leg">
+  <div><div class="sw" style="background:#35e0b0"></div>THETA DESK
+       <b style="color:#35e0b0">+506$</b></div>
+  <div><div class="sw" style="background:#ff7a7a"></div>naive "read a headline, buy an option"
+       <b style="color:#ff7a7a">+10$</b></div>
+</div>
+<svg width="1380" height="350" viewBox="0 0 1380 350">
+  <line x1="0" y1="238" x2="1380" y2="238" stroke="#3a4a72"
+        stroke-width="2" stroke-dasharray="8 8"/>
+  <path d="M0.0,233.5 L62.7,239.4 L125.5,233.2 L188.2,241.3 L250.9,238.2 L313.6,242.9 L376.4,238.7 L439.1,249.9 L501.8,327.9 L564.5,332.6 L627.3,331.8 L690.0,234.7 L752.7,273.1 L815.5,288.1 L878.2,288.1 L940.9,280.6 L1003.6,276.9 L1066.4,249.7 L1129.1,290.7 L1191.8,313.5 L1254.5,304.6 L1317.3,283.1 L1380.0,233.7" fill="none" stroke="#ff7a7a" stroke-width="4" opacity=".85"/>
+  <path d="M0.0,239.6 L62.7,235.0 L125.5,239.8 L188.2,234.0 L250.9,236.0 L313.6,242.6 L376.4,244.7 L439.1,239.8 L501.8,221.2 L564.5,218.9 L627.3,240.8 L690.0,27.2 L752.7,117.9 L815.5,129.0 L878.2,137.1 L940.9,97.9 L1003.6,89.2 L1066.4,71.7 L1129.1,112.1 L1191.8,146.5 L1254.5,142.8 L1317.3,102.0 L1380.0,17.4" fill="none" stroke="#35e0b0" stroke-width="6"/>
+</svg>
+<div class="foot">
+  <div>18 risk gates · 4 LLM roles · every decision replays bit-for-bit · <b>paper trading only</b></div>
+  <div><b>Team Qwertys</b> · Alpaca × lablab.ai</div>
+</div></div>
