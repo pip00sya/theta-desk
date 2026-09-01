@@ -75,6 +75,21 @@ def test_neutral_condor_uses_its_own_credit_floor():
     assert sel.select(entries, EXP, neutral_score, structures, CFG["regime"], "2026-09-01") is None
 
 
+def test_every_regime_branch_can_fire():
+    """DEVLOG #7/#15/#17 were all 'dead rules' — branches that could never
+    produce a candidate. Every regime must yield one on a plain mock chain."""
+    entries, _ = _entries(realized_scale=0.80)
+    R = CFG["regime"]
+    rich = sel.select(entries, EXP, R["vrp_rich_threshold"] + 0.05, CFG["structures"], R, "2026-09-01")
+    neutral = sel.select(entries, EXP, 0.5 * (R["vrp_cheap_threshold"] + R["vrp_rich_threshold"]),
+                         CFG["structures"], R, "2026-09-01")
+    cheap = sel.select(entries, EXP, R["vrp_cheap_threshold"] - 0.05, CFG["structures"], R, "2026-09-01")
+    assert rich and rich.structure.kind == "iron_condor" and rich.regime == "rich"
+    assert neutral and neutral.structure.kind == "iron_condor" and neutral.regime == "neutral"
+    assert cheap and cheap.structure.kind == "cheap_vol_put" and cheap.regime == "cheap"
+    assert sel.build_hedge_put(entries, EXP, CFG["structures"]["hedge"], "2026-09-01") is not None
+
+
 def test_session_date_is_new_york_not_host_local():
     """DEVLOG #18: the host's local midnight (UTC+5) falls an hour before the
     close; day keys must follow the exchange session."""

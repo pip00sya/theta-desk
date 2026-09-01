@@ -94,7 +94,7 @@ class MockAlpacaClient:
                 sym = occ_symbol(underlying, exp, right, float(strike))
                 out[sym] = {
                     "latestQuote": {"bp": round(mid - half, 2), "ap": round(mid + half, 2),
-                                    "bs": 10, "as": 10},
+                                    "bs": 10, "as": 10, "t": now.isoformat()},
                     "greeks": {"delta": round(g.delta, 4), "gamma": round(g.gamma, 6),
                                "theta": round(g.theta, 4), "vega": round(g.vega, 4),
                                "rho": round(g.rho, 4)},

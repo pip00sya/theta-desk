@@ -9,7 +9,7 @@ Team Qwertys — [Alpaca AI Trading Agents Hackathon](https://lablab.ai/ai-hacka
 <a href="https://theta-desk.streamlit.app"><b>▶ Live dashboard</b></a> ·
 <a href="https://theta-desk.streamlit.app/?judge=1">Judge mode</a> ·
 <a href="WRITEUP.md">One-page write-up</a> ·
-<a href="DEVLOG.md">DEVLOG — 19 documented self-corrections</a> ·
+<a href="DEVLOG.md">DEVLOG — 22 documented self-corrections</a> ·
 <a href="API-FEEDBACK.md">Feedback for the Alpaca team</a>
 </p>
 
@@ -35,7 +35,7 @@ Four LLM roles run every 15-minute cycle — a Vol Analyst (Claude), a blind
 Second Opinion (Mistral via Featherless — cross-provider, so disagreement is
 real), a News Vetoer (Qwen, cheap enough for every tick), and a Risk Officer
 (Claude) whose only job is to attack the trade. They argue, veto and shrink
-size. **They cannot loosen a single one of 18 deterministic risk gates.**
+size. **They cannot loosen a single one of 19 deterministic risk gates.**
 
 The central gate is the desk's veto right: before any order, the **entire
 book plus the candidate** is repriced over a ±20% underlying grid at the
@@ -49,6 +49,9 @@ rule for options margin — applied one step earlier.
 
 - **Hash-chained journal** — every decision line carries the SHA-256 of the
   previous one; edit a byte and `verify-journal` fails
+- **Fills are the truth** — an order is *pending* until the broker reports
+  the fill, and the book is repriced to the real fill; `tools/broker_check.py`
+  diffs the store against the broker's fills
 - **Bit-for-bit replay** — every tick stores its inputs; `tools/replay.py`
   re-runs the deterministic pipeline over the whole week (currently 100% MATCH)
 - **Claims reconciler** — `tools/reconcile.py` recomputes every number in
@@ -65,7 +68,7 @@ scheduler (mirrors the exchange session, survives sleep & battery)
   └─ L1 data        chain + greeks + IV (free indicative feed), 20d RV, per-underlying spots
   └─ L2 desk        4 LLM roles argue/veto/size — never compute
   └─ L3 selector    deterministic regime map -> iron condor / long vega / QQQ fallback
-  └─ L4-L5 gates    18 pure-Python gates incl. ★ portfolio payoff simulator
+  └─ L4-L5 gates    19 pure-Python gates incl. ★ portfolio payoff simulator
   └─ L6 executor    mleg limit via Alpaca CLI (signed prices), idempotent ids, REST fallback
   └─ L7 manager     profit targets · realization policy · NFP de-risk · halt-not-flatten
   └─ L8 audit       hash journal · snapshots · replay · reconcile · evidence archive

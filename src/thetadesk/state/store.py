@@ -88,6 +88,13 @@ class Store:
             self.conn.execute("UPDATE structures SET status=? WHERE structure_id=?", (status, sid))
         self.conn.commit()
 
+    def set_fills(self, sid: str, legs_json: str, net_credit: float, status: str) -> None:
+        """Entry filled: replace decision-time mids with the real fills (DEVLOG #20)."""
+        self.conn.execute(
+            "UPDATE structures SET legs_json=?, net_credit=?, status=? WHERE structure_id=?",
+            (legs_json, net_credit, status, sid))
+        self.conn.commit()
+
     def open_structures(self) -> list[dict]:
         # 'closing' = close order accepted but not filled: still at the broker,
         # still risk, still part of the book (DEVLOG #19)
@@ -137,6 +144,16 @@ class Store:
             "INSERT INTO kv VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value))
         self.conn.commit()
+
+    def try_lock(self, key: str, now_iso: str, stale_before_iso: str) -> bool:
+        """Atomic take-if-free (or stale) — one upsert, no check-then-set race."""
+        cur = self.conn.execute(
+            """INSERT INTO kv VALUES (?,?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value
+               WHERE kv.value IS NULL OR kv.value = '' OR kv.value < ?""",
+            (key, now_iso, stale_before_iso))
+        self.conn.commit()
+        return cur.rowcount == 1
 
     def get_kv(self, key: str, default: str | None = None) -> str | None:
         row = self.conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()

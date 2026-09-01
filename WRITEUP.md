@@ -31,8 +31,9 @@ Alpaca's MCP server in Claude Code.
 
 ## 2. Risk gates
 
-Eighteen gates, all pure Python, orchestrated in `engine/gates.py` and unit-
-and property-tested (incl. an earned-scaled cap on the long-premium sleeve). The central one: before any order, the ENTIRE book plus
+Nineteen gates, all pure Python, orchestrated in `engine/gates.py` and unit-
+and property-tested (incl. an earned-scaled cap on the long-premium sleeve
+and a feed-liveness gate on the ATM quote strip). The central one: before any order, the ENTIRE book plus
 the candidate is repriced over a ±20% underlying-price grid at the judging
 horizon (deadline + 14 days), under base and stressed-vol scenarios; if the
 worst grid P&L breaches the budget (6% of equity, extendable to 8% only by
@@ -57,7 +58,9 @@ codes 0/1/2, idempotent `client_order_id`), with a REST fallback that
 journals which transport was used. The **MCP server** is the research loop
 in Claude Code. Multi-leg structures use `order_class: mleg` (2–4 legs,
 `ratio_qty` in lowest terms, `position_intent` per leg), validated
-client-side so the judged account shows zero rejected orders. Every
+client-side so the judged account shows zero rejected orders. An order is
+`pending` until the broker reports the fill; the book is then repriced to
+the real fill, and unfilled orders are cancelled and re-decided. Every
 decision is an entry in a hash-chained journal; `tools/replay.py` re-runs
 the week's decisions from stored snapshots bit-for-bit, and every number
 below regenerates with one command.
@@ -67,18 +70,19 @@ below regenerates with one command.
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 335 | `python tools/reconcile.py` |
+| 01 | journal_entries | 346 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
-| 03 | ticks | 35 | `python tools/reconcile.py` |
-| 04 | gate_evaluations | 7 | `python tools/reconcile.py` |
-| 05 | entries_refused_by_gates | 2 | `python tools/reconcile.py` |
+| 03 | ticks | 36 | `python tools/reconcile.py` |
+| 04 | gate_evaluations | 8 | `python tools/reconcile.py` |
+| 05 | entries_refused_by_gates | 3 | `python tools/reconcile.py` |
 | 06 | structures_total | 4 | `python tools/reconcile.py` |
 | 07 | structures_open | 1 | `python tools/reconcile.py` |
 | 08 | structures_closed | 3 | `python tools/reconcile.py` |
-| 09 | realized_pnl_usd | 757.50 | `python tools/reconcile.py` |
-| 10 | book_worst_case_peak_usd | 1510 | `python tools/reconcile.py` |
-| 11 | order_transports_used | cli,dry_run,rest | `python tools/reconcile.py` |
-| 12 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
+| 09 | realized_pnl_usd | 764.00 | `python tools/reconcile.py` |
+| 10 | realized_pnl_per_broker_fills_usd | 764.00 | `python tools/reconcile.py` |
+| 11 | book_worst_case_peak_usd | 1510 | `python tools/reconcile.py` |
+| 12 | order_transports_used | cli,dry_run,rest | `python tools/reconcile.py` |
+| 13 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 <!-- CLAIMS:END -->
 
 *Paper trading simulation only. Hypothetical results, no real funds, not

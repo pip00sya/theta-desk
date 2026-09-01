@@ -9,7 +9,7 @@ THETA DESK — Autonomous Options Desk
 
 **Short Description** (50–255; сейчас ~219):
 ```
-An autonomous options desk on Alpaca that doesn't predict prices — it prices the volatility risk premium, runs a hedged two-sleeve book, and refuses any trade that fails an 18-gate risk wall with a portfolio payoff simulator.
+An autonomous options desk on Alpaca that doesn't predict prices — it prices the volatility risk premium, runs a hedged two-sleeve book, and refuses any trade that fails an 19-gate risk wall with a portfolio payoff simulator.
 ```
 
 **Long Description** (600–2000 символов; сейчас ~1450):
@@ -18,7 +18,7 @@ Over a five-day competition, price prediction is a coin flip. THETA DESK doesn't
 
 Four LLM roles run every cycle in a two-tier inference economy: a Vol Analyst and a mandated devil's-advocate Risk Officer on Claude, an independent Second Opinion (Mistral-Small-24B via Featherless AI — a different provider, so disagreement is real), and a News Vetoer (Qwen2.5-7B, cheap enough for every tick). They argue, veto and size — but they never compute, and no model output can loosen a gate.
 
-Eighteen deterministic risk gates stand between any idea and the market. The central one reprices the ENTIRE book plus the candidate over a ±20% price grid at the judging horizon, under base and stressed-vol scenarios — a client-side implementation of the same worst-case principle as Alpaca's universal spread rule. The agent earns extra risk budget only from realized gains, de-risks by rule before NFP (which lands on deadline morning), and halts — never panic-flattens — on drawdown.
+Nineteen deterministic risk gates stand between any idea and the market. The central one reprices the ENTIRE book plus the candidate over a ±20% price grid at the judging horizon, under base and stressed-vol scenarios — a client-side implementation of the same worst-case principle as Alpaca's universal spread rule. The agent earns extra risk budget only from realized gains, de-risks by rule before NFP (which lands on deadline morning), and halts — never panic-flattens — on drawdown.
 
 Every decision is a hash-chained journal entry; the whole week replays bit-for-bit with one command, and every number in our write-up regenerates from the journal. Built on Alpaca's Trading API, MCP server and CLI (multi-leg mleg orders with idempotent client order ids). Paper trading only.
 ```

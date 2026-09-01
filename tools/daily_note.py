@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +36,9 @@ def main() -> int:
     cfg = cfgmod.load()
     store = Store(cfg.db_path)
     journal = Journal(cfg.journal_dir)
-    today = date.today().isoformat()
+    # session date in New York (DEVLOG #18): the wrapper runs this at 20:05 UTC,
+    # when the host's local date has already rolled to tomorrow
+    today = (datetime.now(timezone.utc) - timedelta(hours=4)).date().isoformat()
 
     entries = [e for e in journal.read_all() if e["ts"][:10] == today]
     if not entries:

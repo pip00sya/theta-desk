@@ -30,7 +30,8 @@ def _chain_for(structure, rel_spread=0.04, iv=0.15):
         mid = max(0.10, l.entry_price)
         half = mid * rel_spread / 2
         chain[l.contract.symbol] = {
-            "latestQuote": {"bp": round(mid - half, 2), "ap": round(mid + half, 2)},
+            "latestQuote": {"bp": round(mid - half, 2), "ap": round(mid + half, 2),
+                            "t": ASOF.isoformat()},
             "impliedVolatility": iv,
             "greeks": {"delta": -0.15 if l.contract.right == "P" else 0.15},
         }
@@ -51,6 +52,26 @@ def _run(structure, qty=1, equity=100_000, hwm=100_000, realized=0.0,
 def test_clean_condor_passes_all_gates():
     r = _run(_condor())
     assert r.passed, r.first_failure
+
+
+def test_g19_rejects_stale_or_untimestamped_feed():
+    """DEVLOG #22: feed liveness from the ATM strip, not per leg."""
+    from datetime import timedelta
+    s = _condor()
+    stale = _chain_for(s)
+    for v in stale.values():
+        v["latestQuote"]["t"] = (ASOF - timedelta(minutes=30)).isoformat()
+    r = _run(s, chain=stale)
+    assert not r.passed and r.first_failure.gate == "g19_feed_freshness"
+    no_t = _chain_for(s)
+    for v in no_t.values():
+        del v["latestQuote"]["t"]
+    r = _run(s, chain=no_t)
+    assert not r.passed and r.first_failure.gate == "g19_feed_freshness"
+    # a stale far wing must NOT trip it while the ATM strip is live
+    wing = _chain_for(s)
+    wing["SPY260918C00690000"]["latestQuote"]["t"] = (ASOF - timedelta(hours=2)).isoformat()
+    assert _run(s, chain=wing).passed
 
 
 def test_g2_rejects_foreign_underlying():

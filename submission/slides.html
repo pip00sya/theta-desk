@@ -49,7 +49,7 @@
   <h1>Θ THETA DESK</h1>
   <div class="sub" style="font-size:40px">An autonomous options desk that prices <b style="color:#fff">volatility</b>, not direction.</div>
   <div class="cols" style="margin-top:64px">
-    <div class="card"><div class="big">18</div><p>deterministic risk gates — LLMs cannot loosen a single one</p></div>
+    <div class="card"><div class="big">19</div><p>deterministic risk gates — LLMs cannot loosen a single one</p></div>
     <div class="card"><div class="big">4</div><p>LLM roles that argue, veto and size — Claude + open models via Featherless</p></div>
     <div class="big" style="display:none"></div>
     <div class="card"><div class="big">100%</div><p>of decisions replay bit-for-bit from a hash-chained journal</p></div>
@@ -92,7 +92,7 @@
     <div class="arrow">→</div>
     <div class="step"><b>Selector</b><span>deterministic regime map picks the structure and delta-targets the strikes</span></div>
     <div class="arrow">→</div>
-    <div class="step veto"><b>18 gates</b><span>incl. ★ portfolio payoff simulator — the desk's veto right</span></div>
+    <div class="step veto"><b>19 gates</b><span>incl. ★ portfolio payoff simulator — the desk's veto right</span></div>
     <div class="arrow">→</div>
     <div class="step"><b>Execution</b><span>mleg limit via Alpaca CLI, signed prices, idempotent order ids</span></div>
     <div class="arrow">→</div>
@@ -153,7 +153,7 @@
       write-up from the journal — no credentials required. Evidence archive
       snapshots account/orders/positions daily at the close.</p></div>
   </div>
-  <div class="card" style="margin-top:36px"><h3>DEVLOG — 19 documented self-corrections</h3>
+  <div class="card" style="margin-top:36px"><h3>DEVLOG — 22 documented self-corrections</h3>
     <p>The build found real things: Alpaca's mleg <b>limit price is signed</b>
     (negative = credit — our abs() once turned «collect ≥ 3.40» into «pay ≤ 3.40»,
     caught by a weekend acceptance test, fixed, upstream feedback written) ·
@@ -169,7 +169,7 @@
   <h2>Four books. Same inputs. <span class="a">Different brains.</span></h2>
   <table>
     <tr><th>Book</th><th>What it is</th><th>P&amp;L (updated at submission)</th></tr>
-    <tr><td><b>real</b></td><td>the full agent: desk + 18 gates + management</td><td class="green"><b>+$321 → final on Friday</b></td></tr>
+    <tr><td><b>real</b></td><td>the full agent: desk + 19 gates + management</td><td class="green"><b>+$321 → final on Friday</b></td></tr>
     <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td>tracked live</td></tr>
     <tr><td>shadow_nohedge</td><td>the real book minus its hedge sleeve</td><td>tracked live</td></tr>
     <tr><td class="red">baseline_naive</td><td>«LLM reads a headline, buys ATM» — what a coin flip earns</td><td class="red"><b>−$98 … −$217 all week</b></td></tr>
@@ -195,7 +195,7 @@
       NFP-morning deadline entered with winners locked by rule.</p></div>
     <div class="card"><h3>Built and operated by AI</h3>
       <p>Designed, coded, red-teamed, debugged and run end-to-end by Claude
-      (Claude Code + Alpaca MCP), with 19 self-corrections documented in
+      (Claude Code + Alpaca MCP), with 22 self-corrections documented in
       DEVLOG.md. Disclosed openly.</p></div>
   </div>
   <div class="foot">

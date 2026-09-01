@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 data/thetadesk.sqlite
 data/evidence/
+data/demo/
+data/alerts.log
 # journal + snapshots ARE committed: reconcile and replay need them
 !data/journal/
 !data/snapshots/

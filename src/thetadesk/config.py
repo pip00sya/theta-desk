@@ -48,21 +48,30 @@ class Config:
     def underlyings(self) -> list[str]:
         return list(self.raw["universe"]["underlyings"])
 
+    def _data(self, key: str) -> Path:
+        """DEVLOG #23: THETADESK_DATA_DIR relocates every data path (demo runs
+        must never touch the live store, journal or snapshots)."""
+        p = Path(self.raw["paths"][key])
+        override = os.environ.get("THETADESK_DATA_DIR")
+        if override:
+            p = Path(override) / p.name
+        return self.root / p
+
     @property
     def db_path(self) -> Path:
-        return self.root / self.raw["paths"]["db"]
+        return self._data("db")
 
     @property
     def journal_dir(self) -> Path:
-        return self.root / self.raw["paths"]["journal_dir"]
+        return self._data("journal_dir")
 
     @property
     def snapshot_dir(self) -> Path:
-        return self.root / self.raw["paths"]["snapshot_dir"]
+        return self._data("snapshot_dir")
 
     @property
     def evidence_dir(self) -> Path:
-        return self.root / self.raw["paths"]["evidence_dir"]
+        return self._data("evidence_dir")
 
     def events(self) -> list[MacroEvent]:
         path = self.root / self.raw["events"]["calendar_file"]

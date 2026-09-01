@@ -59,6 +59,9 @@ risk:
 liquidity:
   max_rel_spread: 0.08          # gate #6
   require_two_sided: true       # gate #5
+  # gate #19 (DEVLOG #22): median quote age of the 20 nearest-ATM contracts.
+  # Live feed shows 0.0m median / 5.3m max across the whole chain in-session.
+  max_quote_age_min: 10
 
 timing:
   no_trade_first_min: 15        # gate #10

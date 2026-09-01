@@ -1,11 +1,12 @@
-# BACKUP scheduler — offset +15 min from the local primary (RED-TEAM P9).
-# Idempotency (structure_id dedup + client_order_id) makes double-fire safe.
-# NOTE: keep this repo PRIVATE until submission day — Actions logs on public
-# repos are world-readable.
+# Manual-only (DEVLOG #21). This was the backup scheduler (RED-TEAM P9), but a
+# cloud runner is a SECOND WRITER with an EMPTY store: data/thetadesk.sqlite is
+# not committed, so every cloud tick would see the broker's positions as
+# unknown (integrity breach) and, on an empty account, could trade a book the
+# local agent knows nothing about — then push journal commits that diverge
+# from the local chain. The local Task Scheduler is the only heartbeat; the
+# tick lock covers overlapping runs there.
 name: theta-desk-heartbeat
 on:
-  schedule:
-    - cron: "15,45 13-20 * * 1-5"   # UTC, weekdays
   workflow_dispatch:
 
 jobs:

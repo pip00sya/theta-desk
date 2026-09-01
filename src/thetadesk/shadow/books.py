@@ -52,10 +52,15 @@ def shadow_legs(store: Store, book: str, exclude_sleeve: str | None = None) -> l
     return legs
 
 
-def real_book_legs(store: Store, exclude_sleeve: str | None = None) -> list[Leg]:
+def real_book_legs(store: Store, exclude_sleeve: str | None = None,
+                   include_pending: bool = False) -> list[Leg]:
+    """Legs at the broker (open + closing). include_pending adds entries whose
+    order is still working — the gates assume they fill (conservative);
+    the marks do not (no exposure yet)."""
+    statuses = ("open", "closing", "pending") if include_pending else ("open", "closing")
     legs: list[Leg] = []
     for s in store.open_structures():
-        if s["status"] not in ("open", "closing"):   # closing = still at the broker
+        if s["status"] not in statuses:
             continue
         if exclude_sleeve and s["sleeve"] == exclude_sleeve:
             continue

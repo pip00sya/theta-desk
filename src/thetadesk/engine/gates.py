@@ -10,8 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from statistics import median
+
 from ..config import Config, MacroEvent
-from .contracts import Leg, Structure
+from .contracts import Leg, OptionContract, Structure
 from .liquidity import check_quote
 from .payoff import PayoffResult, portfolio_worst_case
 
@@ -80,6 +82,42 @@ def g5_g6_liquidity(s: Structure, chain: dict[str, dict], max_rel_spread: float)
                               f"{leg.contract.symbol}: {qc.reason}",
                               {"bid": qc.bid, "ask": qc.ask, "rel_spread": qc.rel_spread}))
     return out
+
+
+def g19_feed_freshness(chain: dict[str, dict], spot: "float | dict[str, float]",
+                       asof: datetime, max_age_min: float, n: int = 20) -> GateResult:
+    """DEVLOG #22: is the quote feed alive? Median age of the n two-sided
+    quotes nearest the money must be under max_age_min. Deliberately NOT
+    per-leg: a far wing legitimately goes minutes without a quote change;
+    the ATM strip does not. Fail-closed when the feed carries no timestamps."""
+    ages: list[tuple[float, float]] = []
+    two_sided = 0
+    for sym, s in chain.items():
+        q = s.get("latestQuote") or {}
+        if not (float(q.get("bp") or 0) > 0 and float(q.get("ap") or 0) > 0):
+            continue
+        two_sided += 1
+        if not q.get("t"):
+            continue
+        try:
+            c = OptionContract.parse(sym)
+            sp = spot.get(c.underlying) if isinstance(spot, dict) else float(spot)
+            if not sp:
+                continue
+            t = datetime.fromisoformat(str(q["t"]).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        ages.append((abs(c.strike - sp), (asof - t).total_seconds() / 60))
+    if two_sided == 0:
+        return GateResult("g19_feed_freshness", False, "no two-sided quotes in chain")
+    if not ages:
+        return GateResult("g19_feed_freshness", False,
+                          f"{two_sided} two-sided quotes but none timestamped — feed not trusted")
+    ages.sort()
+    med = median(a for _, a in ages[:n])
+    return GateResult("g19_feed_freshness", med <= max_age_min,
+                      f"ATM-{min(n, len(ages))} median quote age {med:.1f}m vs {max_age_min}m",
+                      {"median_age_min": med})
 
 
 def g7_structure_size(s: Structure, qty: int, equity: float, frac: float) -> GateResult:
@@ -194,6 +232,8 @@ def run_entry_gates(
     results.append(g3_expiry(structure, cfg.min_expiry))
     results.append(g4_defined_risk(structure))
     results.extend(g5_g6_liquidity(structure, chain, cfg["liquidity"]["max_rel_spread"]))
+    results.append(g19_feed_freshness(chain, spot, asof,
+                                      cfg["liquidity"].get("max_quote_age_min", 10)))
     results.append(g7_structure_size(structure, qty, equity, r["per_structure_max_loss_frac"]))
 
     cand_risk = 0.0

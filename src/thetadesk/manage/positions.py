@@ -124,13 +124,92 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
 @dataclass
 class ReconcileAction:
     structure_id: str
-    action: str          # closed | cancel_revert | reverted | pending
+    action: str          # closes: closed | cancel_revert | reverted | pending
+                         # opens:  filled | cancel_unfilled | unfilled | pending
     reason: str
     pnl: float | None = None
     order_id: str | None = None
+    fills: dict | None = None          # symbol -> real fill price (per share)
+    net_credit: float | None = None    # real net credit per unit after fills
 
 
-BOOK_STATUSES = ("open", "closing")   # still at the broker either way
+BOOK_STATUSES = ("open", "closing")            # position IS at the broker
+KNOWN_STATUSES = ("open", "closing", "pending")  # may be at the broker (entry working)
+
+
+def fills_from_order(order: dict, legs_json: str) -> tuple[dict[str, float], float | None]:
+    """Real per-leg fill prices from a broker order (mleg orders carry them
+    under `legs`; a single-leg order on the parent). Returns (fills, net
+    credit per unit = sum(-qty * price)) — net None if any leg is unpriced."""
+    legs = json.loads(legs_json)
+    fills: dict[str, float] = {}
+    for lo in order.get("legs") or []:
+        p = lo.get("filled_avg_price")
+        if lo.get("symbol") and p:
+            fills[lo["symbol"]] = float(p)
+    if not fills and len(legs) == 1 and order.get("filled_avg_price"):
+        fills[legs[0]["symbol"]] = float(order["filled_avg_price"])
+    if any(d["symbol"] not in fills for d in legs):
+        return fills, None
+    return fills, round(sum(-d["qty"] * fills[d["symbol"]] for d in legs), 4)
+
+
+def apply_fills(legs_json: str, fills: dict[str, float]) -> str:
+    legs = json.loads(legs_json)
+    for d in legs:
+        if d["symbol"] in fills:
+            d["entry_price"] = fills[d["symbol"]]
+    return json.dumps(legs)
+
+
+def _order_age_min(po: dict, order: dict, now: datetime, default: float) -> float:
+    try:
+        sub = datetime.fromisoformat(
+            str(po.get("ts") or order.get("submitted_at", "")).replace("Z", "+00:00"))
+        return (now - sub).total_seconds() / 60
+    except ValueError:
+        return default
+
+
+def reconcile_pending(pending: list[dict], orders: dict[str, dict], lookup,
+                      now: datetime, fill_wait_min: int) -> list[ReconcileAction]:
+    """DEVLOG #20 — the entry-side twin of reconcile_closing: a structure is
+    OPEN only when the broker says filled.
+
+    filled            -> open, legs repriced to the REAL fills
+    dead at broker    -> unfilled (the selector may propose it again; the
+                         attempt counter bounds the retries)
+    live > fill_wait  -> cancel + unfilled
+    partially filled  -> wait (cancelling would leave a broken structure)
+    """
+    out: list[ReconcileAction] = []
+    for s in pending:
+        sid = s["structure_id"]
+        po = orders.get(sid) or {}
+        coid = po.get("client_order_id") or s.get("client_order_id")
+        o = lookup(coid) if coid else None
+        if not o:
+            out.append(ReconcileAction(sid, "pending", f"order {coid} not found at broker — waiting"))
+            continue
+        st, oid = o.get("status", "unknown"), o.get("id")
+        if st == "filled":
+            fills, net = fills_from_order(o, s["legs_json"])
+            reason = f"filled, net {net if net is not None else 'n/a'} vs intended {s['net_credit']}"
+            out.append(ReconcileAction(sid, "filled", reason, None, oid, fills, net))
+        elif st in _DEAD_ORDER:
+            out.append(ReconcileAction(sid, "unfilled", f"entry order {st} at broker", None, oid))
+        elif st == "partially_filled":
+            out.append(ReconcileAction(sid, "pending", "partial fill — waiting", None, oid))
+        elif st in _LIVE_ORDER:
+            age = _order_age_min(po, o, now, fill_wait_min)
+            if age >= fill_wait_min:
+                out.append(ReconcileAction(sid, "cancel_unfilled",
+                                           f"unfilled {age:.0f}m >= {fill_wait_min}m — cancel", None, oid))
+            else:
+                out.append(ReconcileAction(sid, "pending", f"unfilled {age:.0f}m — waiting", None, oid))
+        else:
+            out.append(ReconcileAction(sid, "pending", f"order status {st} — waiting", None, oid))
+    return out
 
 _LIVE_ORDER = ("new", "accepted", "pending_new", "held", "accepted_for_bidding",
                "partially_filled")
@@ -162,23 +241,24 @@ def reconcile_closing(closing: list[dict], pending: dict[str, dict], lookup,
         st = o.get("status", "unknown")
         oid = o.get("id")
         if st == "filled":
-            fill = float(o.get("filled_avg_price") or 0)
-            credit, qty = s["net_credit"], s["qty"]
-            if fill > 0:
-                pnl = (fill - abs(credit)) * 100 * qty if credit < 0 else (credit - fill) * 100 * qty
+            fills, _ = fills_from_order(o, s["legs_json"])
+            qty = s["qty"]
+            legs = json.loads(s["legs_json"])
+            if fills and all(d["symbol"] in fills for d in legs):
+                # per-leg: what we sold/bought back vs what we paid/received
+                pnl = sum(d["qty"] * (fills[d["symbol"]] - d["entry_price"]) * 100 * qty
+                          for d in legs)
+                reason = "filled " + ", ".join(f"{k[-9:]}@{v:.2f}" for k, v in fills.items())
             else:
                 pnl = float(po.get("est_pnl") or 0.0)
-            out.append(ReconcileAction(sid, "closed", f"filled @ {fill:.2f}", round(pnl, 2), oid))
+                reason = "filled, no per-leg prices — estimate kept"
+            out.append(ReconcileAction(sid, "closed", reason, round(pnl, 2), oid, fills or None))
         elif st in _DEAD_ORDER:
             out.append(ReconcileAction(sid, "reverted", f"close order {st} at broker", None, oid))
         elif st == "partially_filled":
             out.append(ReconcileAction(sid, "pending", "partial fill — waiting", None, oid))
         elif st in _LIVE_ORDER:
-            try:
-                sub = datetime.fromisoformat(str(po.get("ts") or o.get("submitted_at", "")).replace("Z", "+00:00"))
-                age_min = (now - sub).total_seconds() / 60
-            except ValueError:
-                age_min = fill_wait_min
+            age_min = _order_age_min(po, o, now, fill_wait_min)
             if age_min >= fill_wait_min:
                 out.append(ReconcileAction(sid, "cancel_revert",
                                            f"unfilled {age_min:.0f}m >= {fill_wait_min}m — cancel, re-decide",
@@ -193,26 +273,31 @@ def reconcile_closing(closing: list[dict], pending: dict[str, dict], lookup,
 def integrity_check(open_structures: list[dict], broker_positions: list[dict]) -> tuple[bool, str]:
     """Broker is the source of truth. A naked short or an unknown position is
     the ONLY trigger for flatten-all (RED-TEAM P5). A structure whose close
-    order is still working ('closing') is still at the broker and counts."""
+    order is still working ('closing') is still at the broker and counts; one
+    whose ENTRY is still working ('pending') may be — its symbols are known,
+    not unknown (DEVLOG #20). Book legs missing at the broker are reported as
+    drift in the reason (ok=True): that is a stale store, not a naked risk."""
     book_syms: dict[str, int] = {}
+    known: set[str] = set()
     for s in open_structures:
-        if s["status"] not in BOOK_STATUSES:
+        if s["status"] not in KNOWN_STATUSES:
             continue
         for leg in legs_from_json(s["legs_json"]):
-            book_syms[leg.contract.symbol] = book_syms.get(leg.contract.symbol, 0) + leg.qty * s["qty"]
+            known.add(leg.contract.symbol)
+            if s["status"] in BOOK_STATUSES:
+                book_syms[leg.contract.symbol] = book_syms.get(leg.contract.symbol, 0) + leg.qty * s["qty"]
 
     broker_syms = {p["symbol"]: int(float(p["qty"])) for p in broker_positions
                    if len(p.get("symbol", "")) > 12}  # option symbols only
 
-    unknown = set(broker_syms) - set(book_syms)
+    unknown = set(broker_syms) - known
     if unknown:
         return False, f"unknown option positions at broker: {sorted(unknown)}"
-    for sym, q in book_syms.items():
-        bq = broker_syms.get(sym, 0)
-        if q < 0 and bq > q:  # we think short but broker shows less short/none while others gone
-            pass  # partial closes are fine; only report structural nakedness below
     # naked short: any net-short symbol at broker with no long leg in the same expiry+right book-side
     for sym, bq in broker_syms.items():
         if bq < 0 and book_syms.get(sym, 0) >= 0:
             return False, f"naked short at broker not in book: {sym}"
+    missing = sorted(sym for sym, q in book_syms.items() if q != broker_syms.get(sym, 0))
+    if missing:
+        return True, f"book/broker consistent; DRIFT — book legs not matched at broker: {missing}"
     return True, "book/broker consistent"

@@ -45,6 +45,10 @@ def compute_claims() -> dict[str, str]:
     for e in entries:
         if e["kind"] == "desk":
             fallbacks.extend(e["data"].get("fallbacks", []))
+    # DEVLOG #20: the broker's fills are the ground truth; tools/broker_check.py
+    # journals its comparison so it can be quoted here without credentials
+    checks = [e["data"] for e in entries if e["kind"] == "broker_check"]
+    broker_realized = f"{checks[-1]['broker_realized']:.2f}" if checks else "not checked"
 
     return {
         "journal_entries": str(len(entries)),
@@ -56,6 +60,7 @@ def compute_claims() -> dict[str, str]:
         "structures_open": str(sum(1 for s in structs if s["status"] == "open")),
         "structures_closed": str(sum(1 for s in structs if s["status"] == "closed")),
         "realized_pnl_usd": f"{store.realized_gains():.2f}",
+        "realized_pnl_per_broker_fills_usd": broker_realized,
         "book_worst_case_peak_usd": f"{-min(worst_cases):.0f}" if worst_cases else "0",
         "order_transports_used": ",".join(transports) or "none",
         "llm_fallbacks_recorded": str(len(fallbacks)),
