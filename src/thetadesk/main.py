@@ -211,7 +211,9 @@ def cmd_tick(args) -> int:
     actions = review_book([s for s in open_structs if s["status"] == "open"], chain,
                           cfg["management"], now, entries_today, cfg.min_expiry,
                           derisk_mode=derisk,
-                          derisk_lock_frac=cfg["events"].get("derisk_lock_profit_frac", 0.15))
+                          derisk_lock_frac=cfg["events"].get("derisk_lock_profit_frac", 0.15),
+                          minutes_to_close=mins_to_close,
+                          realize_window_min=cfg["management"].get("realize_window_min", 60))
     for a in actions:
         journal.append("manage", a.__dict__)
         if a.action == "close" and not dry:

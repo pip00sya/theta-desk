@@ -74,6 +74,8 @@ management:
   profit_target_frac: 0.35      # gate #12 (patched from 0.50) — credit structures
   debit_profit_target_frac: 0.60  # long-premium structures: take at +60% of debit
   realize_min_frac: 0.25        # realization policy: close best >=25% on idle days
+  realize_window_min: 60        # ...but only in the last hour (DEVLOG #24): at the
+                                # open "no entries today" is always true
   structure_stop_credit_mult: 2.0   # gate #13 (credit structures only)
   time_stop_dte: 7              # gate #11 (does not apply to legs behind min_expiry horizon)
 

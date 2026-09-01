@@ -104,6 +104,24 @@ def test_integrity_knows_pending_symbols_and_reports_drift():
     assert not ok and "unknown" in why
 
 
+def test_realization_policy_only_in_last_hour():
+    """DEVLOG #24: 'idle day' cannot be known at the open."""
+    from thetadesk import config as cfgmod
+    from thetadesk.manage.positions import review_book
+    cfg = cfgmod.load()["management"]
+    s = {"structure_id": "s1", "status": "open", "net_credit": -3.74, "qty": 1, "legs_json": LEGS}
+    chain = {"SPY260918P00751000": {"latestQuote": {"bp": 5.20, "ap": 5.28}}}   # +40%
+    common = dict(chain=chain, cfg_mgmt=cfg, now=NOW, entries_today=0, min_expiry="2026-09-18",
+                  realize_window_min=60)
+    [a] = review_book([s], minutes_to_close=300, **common)
+    assert a.action == "hold"
+    [a] = review_book([s], minutes_to_close=45, **common)
+    assert a.action == "close" and "realization policy" in a.reason
+    # offline callers (no clock) keep the old behaviour
+    [a] = review_book([s], minutes_to_close=None, **common)
+    assert a.action == "close"
+
+
 def test_tick_lock_is_atomic_and_expires(tmp_path):
     st = Store(tmp_path / "t.sqlite")
     t0 = "2026-09-01T19:30:00+00:00"

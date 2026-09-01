@@ -51,12 +51,18 @@ def structure_mtm(legs: list[Leg], chain: dict[str, dict]) -> float | None:
 def review_book(open_structures: list[dict], chain: dict[str, dict],
                 cfg_mgmt: dict, now: datetime, entries_today: int,
                 min_expiry: str, derisk_mode: bool = False,
-                derisk_lock_frac: float = 0.15) -> list[ManageAction]:
+                derisk_lock_frac: float = 0.15,
+                minutes_to_close: float | None = None,
+                realize_window_min: float | None = None) -> list[ManageAction]:
     """DEVLOG #15: exits exist for BOTH directions of premium.
       credit structures: 35% profit target, 2x credit stop
       debit structures:  +60% of debit target (vol spikes mean-revert),
                          no stop-loss (loss already bounded by the debit)
-    derisk_mode (inside a high-event window): lock anything >= +15%."""
+    derisk_mode (inside a high-event window): lock anything >= +15%.
+    DEVLOG #24: the idle-day realization policy runs only inside the last
+    realize_window_min of the session (None = anytime, for offline callers):
+    at the first tick of the day entries_today is ALWAYS zero, so 'idle day'
+    was a prophecy, not a fact, and the rule fired at the open."""
     actions: list[ManageAction] = []
     realize_candidates: list[tuple[float, dict, float]] = []
 
@@ -109,8 +115,11 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
 
         actions.append(ManageAction(s["structure_id"], "hold", "within plan", mtm))
 
-    # realization policy: idle day -> close the best candidate >= 25%
-    if entries_today == 0 and realize_candidates:
+    # realization policy: idle day -> close the best candidate >= 25%,
+    # but only once the day has actually been idle (last hour of the session)
+    in_window = (minutes_to_close is None or realize_window_min is None
+                 or minutes_to_close <= realize_window_min)
+    if entries_today == 0 and realize_candidates and in_window:
         realize_candidates.sort(key=lambda t: -t[0])
         frac, s, mtm = realize_candidates[0]
         for a in actions:
