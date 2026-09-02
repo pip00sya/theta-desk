@@ -554,8 +554,12 @@ def cmd_tick(args) -> int:
         # payoff grid prices the combined book.
         neutral_mult = float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5))
         held: dict[str, int] = {}
-        for st in open_structs:
-            if st["status"] not in ("open", "pending") or st.get("sleeve", "core") != "core":
+        # all_structures, not open_structs: a --dry-run book never leaves
+        # 'dry_run' status, and the demo has to show the same rotation the
+        # live desk performs (live has no dry_run rows, so this is identical)
+        for st in store.all_structures():
+            if (st["status"] not in ("open", "pending", "submitting", "closing", "dry_run")
+                    or st.get("sleeve", "core") != "core"):
                 continue          # the hedge is an offset, not exposure to spread
             for u in {_underlying_of(d["symbol"]) for d in json.loads(st["legs_json"])}:
                 held[u] = held.get(u, 0) + 1
