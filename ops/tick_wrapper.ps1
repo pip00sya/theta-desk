@@ -41,5 +41,10 @@ if ($utc.Hour -eq 20 -and $utc.Minute -ge 5) {
     python "$repo\tools\digest.py" 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
     New-Item -ItemType File "$repo\data\notes\$stamp.digest" | Out-Null
   }
+  # publish the session so the cloud dashboard and any clone stay current
+  if (-not (Test-Path "$repo\data\notes\$stamp.published")) {
+    & "$repo\ops\publish.ps1" 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
+    if ($LASTEXITCODE -eq 0) { New-Item -ItemType File "$repo\data\notes\$stamp.published" | Out-Null }
+  }
 }
 exit $rc
