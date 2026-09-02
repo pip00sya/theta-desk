@@ -84,6 +84,17 @@ def book_greeks_dollars(legs, chain: dict[str, dict]) -> tuple[float, float, flo
     return round(d, 2), round(t, 2), round(v, 2)
 
 
+def _priceable(legs: list[Leg], spot) -> tuple[list[Leg], set[str]]:
+    """DEVLOG #29: marking must never crash a tick. The gates keep their hard
+    requirement that every underlying has a spot (a mispriced gate is worse
+    than no gate); a MARK simply drops the legs it cannot price and says so."""
+    if not isinstance(spot, dict):
+        return legs, set()
+    ok = [l for l in legs if l.contract.underlying in spot]
+    missing = {l.contract.underlying for l in legs} - set(spot)
+    return ok, missing
+
+
 def mark_all_books(store: Store, spot: float, asof: datetime,
                    iv_map: dict[str, float], real_realized: float,
                    broker_equity: float | None = None,
@@ -93,25 +104,33 @@ def mark_all_books(store: Store, spot: float, asof: datetime,
     quarantine ticks whose inputs failed the data-quality gate (DEVLOG #28)."""
     out: dict[str, float] = {}
     detail = {"quality": quality}
+    skipped: set[str] = set()
 
-    legs_real = real_book_legs(store)
-    real = mark_to_model(legs_real, spot, asof, iv_map)
+    def mark(legs: list[Leg]) -> float:
+        priceable, missing = _priceable(legs, spot)
+        skipped.update(missing)
+        return mark_to_model(priceable, spot, asof, iv_map)
+
+    legs_real, _ = _priceable(real_book_legs(store), spot)
+    real = mark(real_book_legs(store))
     gd, gt, gv = book_greeks_dollars(legs_real, chain or {})
     store.add_mark("real", broker_equity, real, real_realized,
                    theta=gt, delta=gd, vega=gv, detail=detail)
     out["real"] = real + real_realized
 
-    nogates = mark_to_model(shadow_legs(store, "shadow_nogates"), spot, asof, iv_map)
+    nogates = mark(shadow_legs(store, "shadow_nogates"))
     store.add_mark("shadow_nogates", None, nogates, 0.0, detail=detail)
     out["shadow_nogates"] = nogates
 
-    nohedge = mark_to_model(real_book_legs(store, exclude_sleeve="hedge"), spot, asof, iv_map)
+    nohedge = mark(real_book_legs(store, exclude_sleeve="hedge"))
     store.add_mark("shadow_nohedge", None, nohedge, real_realized, detail=detail)
     out["shadow_nohedge"] = nohedge + real_realized
 
-    naive = mark_to_model(shadow_legs(store, "baseline_naive"), spot, asof, iv_map)
+    naive = mark(shadow_legs(store, "baseline_naive"))
     store.add_mark("baseline_naive", None, naive, 0.0, detail=detail)
     out["baseline_naive"] = naive
+    if skipped:
+        out["_unpriced_underlyings"] = sorted(skipped)
     return out
 
 

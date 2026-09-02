@@ -285,3 +285,24 @@ def test_desk_signal_text_carries_spread_and_ratio(monkeypatch):
     deskmod.run_desk(sigmod.MarketSignals(762.4, 0.0717, 0.1336, 1.0), ["h"], "c", "b",
                      cfgmod.load())
     assert "vol points" in seen["vol_analyst"] and "iv/rv=1.86x" in seen["vol_analyst"]
+
+
+def test_marks_never_crash_on_an_underlying_without_a_spot(tmp_path):
+    """DEVLOG #29: shadow_nogates recorded a refused QQQ condor; the next tick
+    had no QQQ spot and mark_to_model raised, killing the tick AFTER the order
+    had been sent. A mark drops what it cannot price; gates still refuse."""
+    from thetadesk.engine.contracts import Leg, OptionContract
+    from thetadesk.shadow import books
+    from thetadesk.state.store import Store
+
+    st = Store(tmp_path / "t.sqlite")
+    spy = Leg(OptionContract.parse("SPY260918P00751000"), 1, 3.66)
+    qqq = Leg(OptionContract.parse("QQQ260918C00742000"), -1, 1.20)
+    books.record_candidate(st, "shadow_nogates", "iron_condor", "core", [spy, qqq], 1, 1.9,
+                           structure_id="mixed")
+    out = books.mark_all_books(st, {"SPY": 762.0}, NOW,
+                               {"SPY260918P00751000": 0.15, "QQQ260918C00742000": 0.15},
+                               real_realized=0.0)
+    assert out["_unpriced_underlyings"] == ["QQQ"]
+    assert isinstance(out["shadow_nogates"], float)      # marked what it could
+    st.conn.close()

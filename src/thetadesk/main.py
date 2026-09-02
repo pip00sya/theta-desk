@@ -273,6 +273,13 @@ def cmd_tick(args) -> int:
     for s in store.open_structures():
         for d in json.loads(s["legs_json"]):
             book_underlyings.add(_underlying_of(d["symbol"]))
+    # DEVLOG #29: the SHADOW books can hold an underlying the real book does
+    # not — shadow_nogates records every candidate, including the QQQ condor
+    # the gates refused on 2026-09-02. Marking it needs QQQ's spot, and its
+    # absence crashed the tick after the order had already been sent.
+    for b in shadow.SHADOW_BOOKS:
+        for l in shadow.shadow_legs(store, b):
+            book_underlyings.add(l.contract.underlying)
     extra_chains: dict[str, dict] = {}
     for u in sorted(book_underlyings - {primary}):
         extra_chains[u] = client.option_chain(u, expiry)
