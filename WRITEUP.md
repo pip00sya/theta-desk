@@ -111,7 +111,7 @@ the test suite, and every number below regenerates with one command.
 | 17 | desk_meetings_llm_dark | 8 | `python tools/reconcile.py` |
 | 18 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 | 19 | marks_quarantined | 8 | `python tools/reconcile.py` |
-| 20 | test_functions | 110 | `python tools/reconcile.py` |
+| 20 | test_functions | 122 | `python tools/reconcile.py` |
 <!-- CLAIMS:END -->
 
 *Paper trading simulation only. Hypothetical results, no real funds, not
