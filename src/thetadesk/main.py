@@ -543,42 +543,56 @@ def cmd_tick(args) -> int:
                                             "reasons": dq.reasons})
         cand = None
     else:
-        cand = sel.select(entries, exp_date, signals.vrp, cfg["structures"], cfg["regime"], _today(),
-                              neutral_mult=float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5)))
-
-    # DEVLOG #16: second-underlying fallback. When the primary's candidate
-    # fails the credit/liquidity floor (all-day NO_CANDIDATE in neutral
-    # regime), try QQQ — richer IV often clears the same floor. The regime
-    # score stays SPY-derived (indices are tightly correlated; stated in
-    # the write-up), and every gate incl. the multi-underlying payoff grid
-    # prices the combined book.
-    if cand is None and not halt_new_risk:
-        for alt in [u for u in cfg.underlyings if u != primary][:1]:
-            alt_chain = client.option_chain(alt, expiry)
-            if not alt_chain:
+        # DEVLOG #16 + #31: search the whole universe, LEAST-EXPOSED underlying
+        # first. Trying the primary first stacked two near-identical SPY condors
+        # on 2026-09-02 (741/731/782/792 and 742/732/783/793) — one bet at double
+        # size, both broken by the same SPY move. Spreading the same risk budget
+        # across SPY/QQQ/IWM is diversification for free: the daily budget, the
+        # per-structure loss cap and the credit floor are all unchanged.
+        # The regime score stays primary-derived (indices are tightly correlated;
+        # stated in the write-up), and every gate incl. the multi-underlying
+        # payoff grid prices the combined book.
+        neutral_mult = float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5))
+        held: dict[str, int] = {}
+        for st in open_structs:
+            if st["status"] not in ("open", "pending") or st.get("sleeve", "core") != "core":
+                continue          # the hedge is an offset, not exposure to spread
+            for u in {_underlying_of(d["symbol"]) for d in json.loads(st["legs_json"])}:
+                held[u] = held.get(u, 0) + 1
+        order = sorted(cfg.underlyings,
+                       key=lambda u: (held.get(u, 0), 0 if u == primary else 1, u))
+        journal.append("underlying_order", {"order": order, "held": held})
+        cand = None
+        for u in order:
+            if u == primary:
+                u_entries, u_chain = entries, None
+            else:
+                u_chain = client.option_chain(u, expiry)
+                if not u_chain:
+                    continue
+                uq = client.latest_stock_quote(u)
+                u_spot = 0.5 * (float(uq.get("bp") or 0) + float(uq.get("ap") or 0))
+                if not (float(uq.get("bp") or 0) > 0 and float(uq.get("ap") or 0) > 0):
+                    journal.append("alt_underlying_none", {"underlying": u, "spot": u_spot,
+                                                           "reason": "one-sided stock quote"})
+                    continue
+                u_entries = sel.parse_chain(u_chain)
+            cand = sel.select(u_entries, exp_date, signals.vrp, cfg["structures"],
+                              cfg["regime"], _today(), neutral_mult=neutral_mult)
+            if cand is None:
+                # The attempt itself is evidence: a silent miss made a whole day
+                # of NO_CANDIDATE unexplainable (was the fallback even reached?).
+                journal.append("alt_underlying_none", {"underlying": u,
+                                                       "contracts": len(u_chain or chain)})
                 continue
-            alt_q = client.latest_stock_quote(alt)
-            alt_spot = 0.5 * (float(alt_q.get("bp") or 0) + float(alt_q.get("ap") or 0))
-            if not (float(alt_q.get("bp") or 0) > 0 and float(alt_q.get("ap") or 0) > 0):
-                journal.append("alt_underlying_none", {"underlying": alt, "spot": alt_spot,
-                                                       "reason": "one-sided stock quote"})
-                continue
-            alt_entries = sel.parse_chain(alt_chain)
-            cand = sel.select(alt_entries, exp_date, signals.vrp,
-                              cfg["structures"], cfg["regime"], _today(),
-                              neutral_mult=float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5)))
-            if cand is not None:
-                chain = {**chain, **alt_chain}
-                iv_map.update({sym: (s.get("impliedVolatility") or 0.20)
-                               for sym, s in alt_chain.items()})
-                spot_map[alt] = alt_spot
-                journal.append("alt_underlying", {"underlying": alt, "spot": alt_spot,
+            if u != primary:
+                chain = {**chain, **u_chain}
+                iv_map.update({sym: (sn.get("impliedVolatility") or 0.20)
+                               for sym, sn in u_chain.items()})
+                spot_map[u] = u_spot
+                journal.append("alt_underlying", {"underlying": u, "spot": u_spot,
                                                   "kind": cand.structure.kind})
-                break
-            # The attempt itself is evidence: a silent miss made a whole day of
-            # NO_CANDIDATE unexplainable (was the fallback even reached?).
-            journal.append("alt_underlying_none", {"underlying": alt, "spot": alt_spot,
-                                                   "contracts": len(alt_chain)})
+            break
 
     new_entry_made = False
     headlines = [n.get("headline", "") for n in client.news(primary)]   # fetched once per tick

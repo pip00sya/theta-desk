@@ -200,3 +200,25 @@ def test_regime_exit_ignores_zero_credit_rows():
     s["net_credit"] = 0.0
     [a] = review_book([s], _chain(3.66), MGMT, NOW, 0, "2026-09-18", regime="rich", peaks={})
     assert "regime exit" not in a.reason
+
+
+# ---- underlying rotation (DEVLOG #31) --------------------------------------
+
+def test_second_entry_goes_to_a_different_underlying(desk, monkeypatch):
+    """Two near-identical SPY condors on 2026-09-02 were one bet at double
+    size. The search now starts with the underlying the book holds least."""
+    m, cfg = desk
+    broker = FakeBroker(realized_scale=0.70)
+    monkeypatch.setattr(m, "make_client", lambda mock: broker)
+    assert m.cmd_tick_locked(Args()) == 0
+    st = m.Store(cfg.db_path)
+    sid = next(x for x in st.all_structures() if x["kind"] == "iron_condor")["structure_id"]
+    coid = json.loads(st.get_kv(f"open_order:{sid}"))["client_order_id"]
+    st.conn.close()
+    broker.fill(coid, {l["symbol"]: 1.0 for l in broker.submitted[0]["legs"]})
+    assert m.cmd_tick_locked(Args()) == 0          # first condor now open
+
+    order = [e for e in _journal(cfg) if e["kind"] == "underlying_order"][-1]["data"]
+    first_held = order["held"].get(order["order"][0], 0)
+    assert first_held == 0, order            # never re-enters the held name first
+    assert order["order"][-1] == cfg["universe"]["primary"], order
