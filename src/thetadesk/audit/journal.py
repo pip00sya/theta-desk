@@ -6,12 +6,47 @@ nothing was edited after the fact; reconcile and replay both read from here.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 GENESIS = "0" * 64
+
+try:                                    # POSIX
+    import fcntl
+    _HAVE_FCNTL = True
+except ImportError:                     # Windows
+    import msvcrt
+    _HAVE_FCNTL = False
+
+
+@contextlib.contextmanager
+def _exclusive(path: Path):
+    """Hold an OS-level exclusive lock on a sidecar file across the whole
+    read-tail / append cycle. DEVLOG #33: the chain was linked from a hash
+    cached in __init__, so a SECOND writer (a tool run by hand while a tick
+    was in flight) forked it — 2026-09-02 17:45:14, broker_check.py appended
+    while the 17:45 tick held a stale tail, and every later entry chained onto
+    a hash that was no longer the last one. The tick lock never covered this:
+    it serialises ticks, not tools."""
+    lock = path.with_name(path.name + ".lock")
+    with lock.open("a+b") as f:
+        try:
+            if _HAVE_FCNTL:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            else:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            yield
+        finally:
+            with contextlib.suppress(OSError):
+                if _HAVE_FCNTL:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                else:
+                    f.seek(0)
+                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 class Journal:
@@ -67,13 +102,17 @@ class Journal:
             self._write({"ts": datetime.now(timezone.utc).isoformat(), "kind": "journal_tail_repaired",
                          "data": {"bytes_moved": len(tail), "moved_to": f"{self.path.name}.corrupt-{stamp}"},
                          "prev_hash": self._last_hash})
-        entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "kind": kind,
-            "data": data,
-            "prev_hash": self._last_hash,
-        }
-        return self._write(entry)
+        with _exclusive(self.path):
+            # the FILE is the source of truth for the tail, not this process's
+            # memory: another writer may have appended since __init__
+            self._last_hash = self._read_last_hash()
+            entry = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "kind": kind,
+                "data": data,
+                "prev_hash": self._last_hash,
+            }
+            return self._write(entry)
 
     def _write(self, entry: dict) -> dict:
         body = json.dumps(entry, sort_keys=True, ensure_ascii=False)

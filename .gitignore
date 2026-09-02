@@ -19,3 +19,4 @@ submission/_video/
 data/notes/*.digest
 data/notes/*.published
 data/watchdog.log
+data/journal/*.lock

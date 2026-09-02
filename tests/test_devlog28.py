@@ -418,3 +418,23 @@ def test_trailing_stop_applies_to_condors_too():
     assert a.action == "hold" and peaks["c1"] >= 0.20        # +25% of max profit, armed
     [a] = review_book([_condor_struct()], _condor_chain(0.95), MGMT, NOW, 1, "2026-09-18", peaks=peaks)
     assert a.action == "close" and "trailing stop" in a.reason
+
+
+# ---- DEVLOG #33: two writers must not fork the chain ------------------------
+
+def test_a_second_writer_cannot_fork_the_chain(tmp_path):
+    """2026-09-02 17:45:14: broker_check.py appended while the 17:45 tick was
+    in flight. The tick had cached the tail hash in __init__, so its next
+    entry chained onto a hash that was no longer last — one fork, and publish
+    correctly refused to ship the session. append() now re-reads the tail
+    under an exclusive lock."""
+    from thetadesk.audit.journal import Journal
+    a = Journal(tmp_path)                       # the tick
+    a.append("tick_start", {"n": 1})
+    b = Journal(tmp_path)                       # a tool run by hand
+    b.append("broker_check", {"n": 2})
+    a.append("desk", {"n": 3})                  # stale cache in the old code
+    ok, why = Journal(tmp_path).verify_chain()
+    assert ok, why
+    kinds = [e["kind"] for e in Journal(tmp_path).read_all()]
+    assert kinds == ["tick_start", "broker_check", "desk"], kinds

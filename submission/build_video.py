@@ -35,7 +35,11 @@ NARRATION = {
         "condors and harvest theta. On day one, the live signal said realized "
         "volatility was above implied — premium was cheap, and selling it would be "
         "negative edge. The agent went against our own plan and bought convexity "
-        "instead. Every decision since is recorded in a hash chained journal."),
+        "instead. The market slid, and three of those four puts closed at plus "
+        "sixty four to seventy percent. Two days later realized vol collapsed, the "
+        "regime flipped rich, and the desk sold its first iron condors — the "
+        "structure it was built for. Both branches fired, live, on their own "
+        "signal. Every decision is in a hash chained journal."),
     3: ("slide3.png",
         "Every fifteen minutes of the session, the desk runs one cycle. Four language "
         "model roles argue about the same numbers: a volatility analyst on Claude; an "
@@ -62,14 +66,15 @@ NARRATION = {
         "Everything is reproducible. The journal is hash chained — change one byte "
         "and verification fails. Every tick stores its inputs, and one command "
         "replays the entire week, bit for bit. Another command regenerates every "
-        "number in our write up: twelve out of twelve claims, zero mismatches, no "
+        "number in our write up: twenty out of twenty claims, zero mismatches, no "
         "credentials required."),
     7: ("account.png",
         "The result, on paper account P A 3 9 C 1 0 Y A M Y Q: a small, explained, "
-        "risk boxed P and L. Every position is defined risk. The book's worst case is "
-        "capped by the gates. Position size grows only from realized gains. And the "
-        "jobs report that lands on deadline morning is de-risked by rule, the day "
-        "before."),
+        "risk boxed P and L. Seven hundred and eighty five dollars realized, on a "
+        "book whose worst case never left three and a half percent of equity. Every "
+        "position is defined risk. Position size grows only from realized gains. And "
+        "the jobs report that lands on deadline morning is de-risked by rule, the "
+        "day before — the desk will open nothing tomorrow, by design."),
     8: ("cover.png",
         "THETA DESK. Language models decide whether it's wise. Code decides whether "
         "it's allowed. Built on Alpaca's Trading API, M C P server, and C L I, by "
