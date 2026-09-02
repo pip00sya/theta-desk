@@ -59,9 +59,24 @@ class Store:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # DEVLOG #28: the close order's id lives on the row itself, written in
+        # the same UPDATE as the 'closing' status — the kv record used to be a
+        # second commit, and a missing record fell back to the ENTRY id.
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(structures)")}
+        if "close_client_order_id" not in cols:
+            self.conn.execute("ALTER TABLE structures ADD COLUMN close_client_order_id TEXT")
         self.conn.commit()
 
     # -- structures -------------------------------------------------------
+    def mark_closing(self, sid: str, close_client_order_id: str) -> None:
+        self.conn.execute(
+            "UPDATE structures SET status='closing', close_client_order_id=? WHERE structure_id=?",
+            (close_client_order_id, sid))
+        self.conn.commit()
+
+    def set_qty(self, sid: str, qty: int) -> None:
+        self.conn.execute("UPDATE structures SET qty=? WHERE structure_id=?", (qty, sid))
+        self.conn.commit()
     def upsert_structure(self, sid: str, kind: str, sleeve: str, qty: int,
                          legs_json: str, net_credit: float, max_loss: float,
                          status: str, order_id: str | None = None,
@@ -101,8 +116,11 @@ class Store:
     def open_structures(self) -> list[dict]:
         # 'closing' = close order accepted but not filled: still at the broker,
         # still risk, still part of the book (DEVLOG #19)
+        # 'submitting' = written BEFORE the broker call (DEVLOG #28): if the
+        # process dies between submit and the store write, the next tick
+        # resolves the row by client_order_id instead of orphaning the order
         rows = self.conn.execute(
-            "SELECT * FROM structures WHERE status IN ('open','pending','closing')").fetchall()
+            "SELECT * FROM structures WHERE status IN ('open','pending','closing','submitting')").fetchall()
         return [dict(r) for r in rows]
 
     def all_structures(self) -> list[dict]:

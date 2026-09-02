@@ -26,7 +26,7 @@ from .audit import alerts
 from .audit.journal import Journal
 from .data import signals as sigmod
 from .engine import selector as sel
-from .engine.contracts import Leg, Structure
+from .engine.contracts import Leg, OptionContract, Structure
 from .engine.gates import run_entry_gates
 from .engine.liquidity import check_quote
 from .execution import cli_bridge, idempotency, mleg
@@ -181,25 +181,31 @@ def cmd_tick(args) -> int:
                                  f"{(ra.pnl or 0):+,.0f}$ | всего зафиксировано "
                                  f"{store.realized_gains():+,.0f}$", journal=None)
                 elif ra.action == "cancel_revert":
+                    # DEVLOG #28: the DELETE is asynchronous (the live trace
+                    # showed 1.1 s in pending_cancel) and the order can still
+                    # fill inside that window. Nothing is written here: the
+                    # next tick reads the terminal state (filled -> closed at
+                    # the real fill, canceled -> reverted).
                     try:
                         client.cancel_order(ra.order_id)
+                        journal.append("close_cancel_sent", {"structure_id": ra.structure_id,
+                                                             "order_id": ra.order_id})
                     except Exception as e:  # leave it 'closing'; next tick retries
                         journal.append("close_cancel_failed", {"structure_id": ra.structure_id,
                                                                "error": str(e)[:300]})
-                        continue
+                elif ra.action == "reverted":
                     store.set_status(ra.structure_id, "open")
                     # DEVLOG #27/#28: the NEXT close of this structure in the
                     # same session crosses the spread; a fresh decision on a
                     # later day goes back to the mid (the raw attempt counter
                     # never reset, so every later close hit the bid).
                     store.set_kv(f"close_missed:{ra.structure_id}", _today())
-                elif ra.action == "reverted":
-                    store.set_status(ra.structure_id, "open")
 
         # ---- reconcile working ENTRY orders (DEVLOG #20) -----------------
         # The twin of the block above: an entry is OPEN only when the broker
-        # says filled, and its legs are repriced to the real fills.
-        pending = [s for s in store.open_structures() if s["status"] == "pending"]
+        # says filled, and its legs are repriced to the real fills. Rows in
+        # 'submitting' (written before the broker call) are resolved here too.
+        pending = [s for s in store.open_structures() if s["status"] in ("pending", "submitting")]
         if pending and not args.mock:
             po_map = {s["structure_id"]: json.loads(store.get_kv(f"open_order:{s['structure_id']}", "{}"))
                       for s in pending}
@@ -210,6 +216,11 @@ def cmd_tick(args) -> int:
                     net = ra.net_credit if ra.net_credit is not None else s["net_credit"]
                     store.set_fills(ra.structure_id, apply_fills(s["legs_json"], ra.fills or {}),
                                     net, "open")
+                    if ra.filled_qty and ra.filled_qty != s["qty"]:
+                        store.set_qty(ra.structure_id, ra.filled_qty)
+                        alerts.alert("WARN", "partial fill adopted",
+                                     f"{s['kind']} {ra.structure_id}: {ra.filled_qty} of {s['qty']}",
+                                     journal=journal)
                     # post-fill sanity: a fill far from the intended price means
                     # the order meant something else (DEVLOG #12 would have tripped this)
                     intended = s["net_credit"]
@@ -225,15 +236,64 @@ def cmd_tick(args) -> int:
                 elif ra.action == "cancel_unfilled":
                     try:
                         client.cancel_order(ra.order_id)
+                        journal.append("open_cancel_sent", {"structure_id": ra.structure_id,
+                                                            "order_id": ra.order_id})
                     except Exception as e:  # stays 'pending'; next tick retries
                         journal.append("open_cancel_failed", {"structure_id": ra.structure_id,
                                                               "error": str(e)[:300]})
-                        continue
-                    store.set_status(ra.structure_id, "unfilled")
-                    release_new_risk(s)
+                    # Status untouched on purpose (DEVLOG #28b): the DELETE is
+                    # asynchronous and the order can still fill inside the
+                    # cancel window, so the terminal state is read from the
+                    # broker next tick — which is also where the daily risk
+                    # budget is given back (DEVLOG #29c).
                 elif ra.action == "unfilled":
                     store.set_status(ra.structure_id, "unfilled")
                     release_new_risk(s)
+
+    def submit_write_ahead(sid: str, kind: str, sleeve: str, qty: int, legs_json: str,
+                           net_credit: float, max_loss: float, payload: dict, coid: str,
+                           jkind: str, extra: dict | None = None):
+        """DEVLOG #28: the row and the kv record exist BEFORE the broker call,
+        so a crash or an ambiguous transport failure can never orphan an
+        accepted order; an ambiguous failure is resolved by client_order_id."""
+        dry_status = "open" if (args.mock and sleeve == "hedge") else "dry_run"
+        if not dry:
+            store.upsert_structure(sid, kind, sleeve, qty, legs_json, net_credit, max_loss,
+                                   "submitting", client_order_id=coid)
+            store.set_kv(f"open_order:{sid}", json.dumps({
+                "client_order_id": coid, "ts": now.isoformat(), "order_id": None,
+                "intended": net_credit}))
+        res = cli_bridge.submit(payload, client, dry_run=dry)
+        journal.append(jkind, {"structure_id": sid, "transport": res.transport, "ok": res.ok,
+                               "duplicate": res.duplicate, "ambiguous": res.ambiguous,
+                               "error": res.error, "payload": payload, **(extra or {})})
+        if dry:
+            store.upsert_structure(sid, kind, sleeve, qty, legs_json, net_credit, max_loss,
+                                   dry_status, order_id=(res.order or {}).get("id"),
+                                   client_order_id=coid)
+            return res
+        order = res.order if res.ok else None
+        if not res.ok:
+            found = None
+            try:
+                found = client.order_by_client_id(coid)
+            except Exception as e:
+                journal.append("order_lookup_failed", {"structure_id": sid, "error": str(e)[:200]})
+            if found:
+                journal.append("order_recovered_by_client_id", {"structure_id": sid,
+                                                                 "order_id": found.get("id"),
+                                                                 "status": found.get("status")})
+                res.ok, order = True, found
+        if res.ok:
+            store.upsert_structure(sid, kind, sleeve, qty, legs_json, net_credit, max_loss,
+                                   "pending", order_id=(order or {}).get("id"), client_order_id=coid)
+            store.set_kv(f"open_order:{sid}", json.dumps({
+                "client_order_id": coid, "ts": now.isoformat(),
+                "order_id": (order or {}).get("id"), "intended": net_credit}))
+        else:
+            store.set_status(sid, "unfilled")
+            journal.append("order_not_at_broker", {"structure_id": sid, "error": res.error[:200]})
+        return res
 
     def check_integrity() -> tuple[bool, str]:
         # ---- integrity: the broker is the source of truth --------------
@@ -271,7 +331,25 @@ def cmd_tick(args) -> int:
     # ---- L1: market data + data-quality gate ------------------------------
     primary = cfg["universe"]["primary"]
     expiry = cfg["expiry"]["target_expiry"]
-    chain = client.option_chain(primary, expiry)
+    # DEVLOG #28: post-submission roll. From roll_after new entries target
+    # roll_target; every expiry already in the book keeps being fetched so
+    # open Sep 18 legs stay markable and managed after the target moves.
+    ex_cfg = cfg["expiry"]
+    if ex_cfg.get("roll_after") and ex_cfg.get("roll_target") and _today() >= ex_cfg["roll_after"]:
+        expiry = ex_cfg["roll_target"]
+    book_expiries = {OptionContract.parse(d["symbol"]).expiry.isoformat()
+                     for s in store.open_structures() for d in json.loads(s["legs_json"])}
+    fetch_expiries = sorted({expiry} | book_expiries)
+    if expiry != cfg["expiry"]["target_expiry"]:
+        journal.append("expiry_roll", {"target": expiry, "book_expiries": sorted(book_expiries)})
+
+    def chains_for(u: str) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for e in fetch_expiries:
+            out.update(client.option_chain(u, e))
+        return out
+
+    chain = chains_for(primary)
     bars = client.stock_bars_daily(primary, days=lookback + 10, exclude_date=_today())
     closes = [b["c"] for b in bars]
     q = client.latest_stock_quote(primary)
@@ -305,7 +383,7 @@ def cmd_tick(args) -> int:
             book_underlyings.add(l.contract.underlying)
     extra_chains: dict[str, dict] = {}
     for u in sorted(book_underlyings - {primary}):
-        extra_chains[u] = client.option_chain(u, expiry)
+        extra_chains[u] = chains_for(u)
         uq = client.latest_stock_quote(u)
         ub = client.stock_bars_daily(u, days=5, exclude_date=_today())
         udq = sigmod.assess(uq, [b["c"] for b in ub], ub, _today(), lookback=1)
@@ -320,7 +398,10 @@ def cmd_tick(args) -> int:
     # merged chain (needed for marks/management of QQQ legs) polluted the
     # nearest-the-money strip and the candidate pool with foreign strikes.
     entries = sel.parse_chain(chain)
-    signals = sigmod.compute(entries, closes, spot, lookback)
+    # the ATM strip for the regime signal comes from the TARGET expiry only —
+    # with two expiries in the chain the nearest strikes would mix term months
+    sig_entries = [e for e in entries if e.expiry.isoformat() == expiry] or entries
+    signals = sigmod.compute(sig_entries, closes, spot, lookback)
     iv_reason = sigmod.check_iv(signals)
     if iv_reason:
         dq.mode = "mark_only"
@@ -340,7 +421,7 @@ def cmd_tick(args) -> int:
         "data_quality": dq.to_dict(),
     }), encoding="utf-8")
     journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name,
-                               "data_quality": dq.mode})
+                               "data_quality": dq.mode, "expiry": expiry})
 
     reconcile_working()
 
@@ -412,17 +493,43 @@ def cmd_tick(args) -> int:
                     "sell_to_close" if l.qty > 0 else "buy_to_close")
             else:
                 payload = mleg.build_mleg_payload(st, s["qty"], close_px, coid, closing=True)
+            # DEVLOG #28: write-ahead. 'closing' + the close order id are on
+            # the row BEFORE the broker call; an ambiguous failure is resolved
+            # by client_order_id, a definitive one reverts to 'open'.
+            store.mark_closing(s["structure_id"], coid)
+            store.set_kv(f"close_order:{s['structure_id']}", json.dumps({
+                "client_order_id": coid, "est_pnl": a.est_pnl,
+                "ts": now.isoformat(), "order_id": None}))
             res = cli_bridge.submit(payload, client, dry_run=dry)
             journal.append("order_close", {"structure_id": s["structure_id"],
                                            "transport": res.transport, "ok": res.ok,
+                                           "ambiguous": res.ambiguous,
                                            "error": res.error, "limit": round(close_px, 2)})
+            order = res.order if res.ok else None
+            if not res.ok:
+                found = None
+                try:
+                    found = client.order_by_client_id(coid)
+                except Exception as e:
+                    journal.append("order_lookup_failed", {"structure_id": s["structure_id"],
+                                                           "error": str(e)[:200]})
+                if found:
+                    journal.append("order_recovered_by_client_id", {
+                        "structure_id": s["structure_id"], "order_id": found.get("id"),
+                        "status": found.get("status")})
+                    res.ok, order = True, found
             if res.ok:
-                # accepted != filled: park it as 'closing'; reconcile_closing
+                # accepted != filled: stays 'closing'; reconcile_closing
                 # settles it against the broker on the next tick (DEVLOG #19)
-                store.set_status(s["structure_id"], "closing")
                 store.set_kv(f"close_order:{s['structure_id']}", json.dumps({
                     "client_order_id": coid, "est_pnl": a.est_pnl,
-                    "ts": now.isoformat(), "order_id": (res.order or {}).get("id")}))
+                    "ts": now.isoformat(), "order_id": (order or {}).get("id")}))
+            else:
+                store.set_status(s["structure_id"], "open")
+                journal.append("close_not_at_broker", {"structure_id": s["structure_id"],
+                                                       "error": res.error[:200]})
+                alerts.alert("WARN", "close order failed",
+                             f"{s['kind']} {s['structure_id']}: {res.error[:200]}", journal=journal)
         elif a.action == "close" and dry and args.mock:
             # the offline demo realizes P&L so the ablation books have exits
             store.set_status(a.structure_id, "closed", a.est_pnl)
@@ -526,7 +633,8 @@ def cmd_tick(args) -> int:
         # tick can supersede them — otherwise a rehearsal blocks the real entry.
         sid = cand.structure.structure_id
         prev = next((s for s in store.all_structures() if s["structure_id"] == sid), None)
-        already = prev is not None and prev["status"] in ("open", "pending", "closing", "closed")
+        already = prev is not None and prev["status"] in ("open", "pending", "closing", "closed",
+                                                          "submitting")
         # DEVLOG #20: an 'unfilled' entry may be proposed again, at a worse
         # price, at most reprice_retries times — bounded, journaled, gated.
         unfilled_before = prev is not None and prev["status"] == "unfilled"
@@ -608,29 +716,19 @@ def cmd_tick(args) -> int:
                         mleg.single_leg_payload(cand.structure.legs[0].contract.symbol, qty,
                                                 "buy", abs(cand.structure.net_credit), coid,
                                                 "buy_to_open")
-                    res = cli_bridge.submit(payload, client, dry_run=dry)
-                    journal.append("order_open", {"structure_id": cand.structure.structure_id,
-                                                  "transport": res.transport, "ok": res.ok,
-                                                  "duplicate": res.duplicate, "error": res.error,
-                                                  "payload": payload})
+                    # accepted != filled: 'pending' until reconcile_pending
+                    # sees the fill (DEVLOG #20); dry runs stay 'dry_run'.
+                    # The row is written BEFORE the broker call (DEVLOG #28).
+                    res = submit_write_ahead(
+                        cand.structure.structure_id, cand.structure.kind,
+                        cand.structure.sleeve, qty,
+                        json.dumps([{"symbol": l.contract.symbol, "qty": l.qty,
+                                     "entry_price": l.entry_price}
+                                    for l in cand.structure.legs]),
+                        cand.structure.net_credit, cand.structure.max_loss,
+                        payload, coid, "order_open")
                     if res.ok:
                         new_entry_made = True
-                        # accepted != filled: 'pending' until reconcile_pending
-                        # sees the fill (DEVLOG #20); dry runs stay 'dry_run'
-                        store.upsert_structure(
-                            cand.structure.structure_id, cand.structure.kind,
-                            cand.structure.sleeve, qty,
-                            json.dumps([{"symbol": l.contract.symbol, "qty": l.qty,
-                                         "entry_price": l.entry_price}
-                                        for l in cand.structure.legs]),
-                            cand.structure.net_credit, cand.structure.max_loss,
-                            "dry_run" if dry else "pending",
-                            order_id=(res.order or {}).get("id"), client_order_id=coid)
-                        if not dry:
-                            store.set_kv(f"open_order:{cand.structure.structure_id}", json.dumps({
-                                "client_order_id": coid, "ts": now.isoformat(),
-                                "order_id": (res.order or {}).get("id"),
-                                "intended": cand.structure.net_credit}))
                         store.add_counter(_today(), "entries", 1)
                         store.add_counter(_today(), "new_risk", unit_risk * qty)
                     else:
@@ -679,23 +777,16 @@ def cmd_tick(args) -> int:
                 coid = idempotency.client_order_id(h.structure_id, _today(), attempt)
                 payload = mleg.single_leg_payload(h.legs[0].contract.symbol, hqty, "buy",
                                                   h.legs[0].entry_price, coid, "buy_to_open")
-                res = cli_bridge.submit(payload, client, dry_run=dry)
-                journal.append("order_hedge", {"structure_id": h.structure_id,
-                                               "transport": res.transport, "ok": res.ok})
-                if res.ok:
-                    # live: 'pending' until the fill is seen (DEVLOG #20);
-                    # dry/demo: 'open' so the ablation books have a hedge to compare
-                    store.upsert_structure(
-                        h.structure_id, h.kind, "hedge", hqty,
-                        json.dumps([{"symbol": h.legs[0].contract.symbol, "qty": 1,
-                                     "entry_price": h.legs[0].entry_price}]),
-                        h.net_credit, h.max_loss,
-                        "open" if args.mock else ("dry_run" if dry else "pending"),
-                        order_id=(res.order or {}).get("id"), client_order_id=coid)
-                    if not dry:
-                        store.set_kv(f"open_order:{h.structure_id}", json.dumps({
-                            "client_order_id": coid, "ts": now.isoformat(),
-                            "order_id": (res.order or {}).get("id"), "intended": h.net_credit}))
+                # live: 'pending' until the fill is seen (DEVLOG #20);
+                # mock/demo: 'open' so the ablation books have a hedge to compare
+                res = submit_write_ahead(
+                    h.structure_id, h.kind, "hedge", hqty,
+                    json.dumps([{"symbol": h.legs[0].contract.symbol, "qty": 1,
+                                 "entry_price": h.legs[0].entry_price}]),
+                    h.net_credit, h.max_loss, payload, coid, "order_hedge")
+                if not res.ok:
+                    alerts.alert("WARN", "hedge order failed",
+                                 f"{h.structure_id}: {res.error[:200]}", journal=journal)
 
     # ---- shadow marks + baseline ----------------------------------------
     naive = None

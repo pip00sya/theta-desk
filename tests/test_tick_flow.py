@@ -116,7 +116,8 @@ def test_entry_and_close_settle_on_broker_fills(desk):
     first = broker.order_by_client_id(coid1)
     assert first and first["order_class"] == "mleg" and float(first["limit_price"]) < 0   # credit: negative wire
 
-    # ---- tick 2: 15 minutes unfilled -> cancel, 'unfilled', re-proposed 15% cheaper ----
+    # ---- tick 2: 15 minutes unfilled -> cancel SENT; nothing terminal is written
+    # (DEVLOG #28: the DELETE is asynchronous and the order may still fill) ----
     st = m.Store(cfg.db_path)
     po = json.loads(st.get_kv(f"open_order:{sid}"))
     po["ts"] = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
@@ -125,12 +126,18 @@ def test_entry_and_close_settle_on_broker_fills(desk):
     assert m.cmd_tick_locked(Args()) == 0
     assert broker.status[coid1] == "canceled"
     s = _struct(m, cfg, sid)
+    assert s["status"] == "pending" and s["client_order_id"] == coid1
+    assert "open_cancel_sent" in [e["kind"] for e in _journal(cfg)]
+
+    # ---- tick 3: broker confirms canceled -> 'unfilled' -> re-proposed 15% cheaper ----
+    assert m.cmd_tick_locked(Args()) == 0
+    s = _struct(m, cfg, sid)
     assert s["status"] == "pending" and s["client_order_id"] != coid1
     assert abs(s["net_credit"] - intended * 0.85) < 0.03
     kinds = [e["kind"] for e in _journal(cfg)]
-    assert "open_reconcile" in kinds and "reprice" in kinds and "flatten_all" not in kinds
+    assert "open_reconcile" in kinds and "reprice" in kinds and "integrity_halt" not in kinds
 
-    # ---- tick 3: the broker fills the resubmission at real (worse) prices -> 'open' ----
+    # ---- tick 4: the broker fills the resubmission at real (worse) prices -> 'open' ----
     coid2 = s["client_order_id"]
     legs = json.loads(s["legs_json"])
     prices = {d["symbol"]: round(d["entry_price"] * (0.97 if d["qty"] < 0 else 1.03), 2) for d in legs}

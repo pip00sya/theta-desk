@@ -16,6 +16,13 @@ expiry:
   min_expiry: "2026-09-18"
   target_expiry: "2026-09-18"
   calendar_back_expiry: "2026-10-16"
+  # DEVLOG #28: post-submission mode. From roll_after the selector targets
+  # roll_target (min_entry_dte would otherwise stop all Sep 18 entries on
+  # Sep 8 and the account would sit idle for the last week of judging).
+  # Open Sep 18 legs keep being quoted, marked and managed: the tick fetches
+  # the chain for every expiry present in the book.
+  roll_after: "2026-09-08"
+  roll_target: "2026-10-16"
 
 structures:
   default: iron_condor          # RED-TEAM P1: condor = 2x theta per unit of worst case

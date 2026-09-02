@@ -83,10 +83,16 @@ def test_entry_live_past_wait_is_cancelled_else_waits():
 def test_entry_dead_or_partial_or_unknown():
     [ra] = reconcile_pending([_pend()], _pending(2), lambda c: {"id": "o1", "status": "expired"}, NOW, 10)
     assert ra.action == "unfilled"
+    # DEVLOG #28: a partial fill older than fill_wait cancels the remainder;
+    # an order the broker never reports is released after 3x fill_wait
+    [ra] = reconcile_pending([_pend()], _pending(5), lambda c: {"id": "o1", "status": "partially_filled"}, NOW, 10)
+    assert ra.action == "pending"
     [ra] = reconcile_pending([_pend()], _pending(30), lambda c: {"id": "o1", "status": "partially_filled"}, NOW, 10)
+    assert ra.action == "cancel_unfilled"
+    [ra] = reconcile_pending([_pend()], _pending(5), lambda c: None, NOW, 10)
     assert ra.action == "pending"
     [ra] = reconcile_pending([_pend()], _pending(30), lambda c: None, NOW, 10)
-    assert ra.action == "pending"
+    assert ra.action == "unfilled"
 
 
 def test_fills_from_order_requires_every_leg():
@@ -174,8 +180,11 @@ def test_partial_fill_and_unknown_order_wait():
     [ra] = reconcile_closing([_closing()], _pending(30),
                              lambda c: {"id": "o1", "status": "partially_filled"}, NOW, 10)
     assert ra.action == "pending"
-    [ra] = reconcile_closing([_closing()], _pending(30), lambda c: None, NOW, 10)
+    [ra] = reconcile_closing([_closing()], _pending(5), lambda c: None, NOW, 10)
     assert ra.action == "pending"
+    # DEVLOG #28: a close order the broker never reports is reverted after 3x fill_wait
+    [ra] = reconcile_closing([_closing()], _pending(30), lambda c: None, NOW, 10)
+    assert ra.action == "reverted"
 
 
 def test_unparseable_timestamp_falls_back_to_cancel():

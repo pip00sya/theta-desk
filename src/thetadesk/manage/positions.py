@@ -211,10 +211,12 @@ class ReconcileAction:
     order_id: str | None = None
     fills: dict | None = None          # symbol -> real fill price (per share)
     net_credit: float | None = None    # real net credit per unit after fills
+    filled_qty: int | None = None      # DEVLOG #28: a dead order that filled PART of its qty
 
 
 BOOK_STATUSES = ("open", "closing")            # position IS at the broker
-KNOWN_STATUSES = ("open", "closing", "pending")  # may be at the broker (entry working)
+KNOWN_STATUSES = ("open", "closing", "pending", "submitting")  # may be at the broker
+NOT_FOUND_GRACE_MULT = 3   # an order the broker never reports: give up after 3x fill_wait
 
 
 def fills_from_order(order: dict, legs_json: str) -> tuple[dict[str, float], float | None]:
@@ -246,6 +248,8 @@ def _order_age_min(po: dict, order: dict, now: datetime, default: float) -> floa
     try:
         sub = datetime.fromisoformat(
             str(po.get("ts") or order.get("submitted_at", "")).replace("Z", "+00:00"))
+        if sub.tzinfo is None:
+            sub = sub.replace(tzinfo=timezone.utc)
         return (now - sub).total_seconds() / 60
     except ValueError:
         return default
@@ -269,17 +273,35 @@ def reconcile_pending(pending: list[dict], orders: dict[str, dict], lookup,
         coid = po.get("client_order_id") or s.get("client_order_id")
         o = lookup(coid) if coid else None
         if not o:
-            out.append(ReconcileAction(sid, "pending", f"order {coid} not found at broker — waiting"))
+            # DEVLOG #28: 'not found' is not forever — after the grace period
+            # the row is released so the selector may propose again
+            age = _order_age_min(po, {}, now, 0.0)
+            if not coid or age >= NOT_FOUND_GRACE_MULT * fill_wait_min:
+                out.append(ReconcileAction(sid, "unfilled",
+                                           f"order {coid} never seen at broker ({age:.0f}m) — released"))
+            else:
+                out.append(ReconcileAction(sid, "pending", f"order {coid} not found at broker — waiting"))
             continue
         st, oid = o.get("status", "unknown"), o.get("id")
-        if st == "filled":
+        filled_qty = int(float(o.get("filled_qty") or 0))
+        if st == "filled" or (st in _DEAD_ORDER and filled_qty > 0):
             fills, net = fills_from_order(o, s["legs_json"])
-            reason = f"filled, net {net if net is not None else 'n/a'} vs intended {s['net_credit']}"
-            out.append(ReconcileAction(sid, "filled", reason, None, oid, fills, net))
+            reason = f"{st}, net {net if net is not None else 'n/a'} vs intended {s['net_credit']}"
+            fq = filled_qty if (st != "filled" and filled_qty) else None
+            if fq:
+                reason += f" — PARTIAL: {fq} of {s['qty']} filled before {st}"
+            out.append(ReconcileAction(sid, "filled", reason, None, oid, fills, net, fq))
         elif st in _DEAD_ORDER:
             out.append(ReconcileAction(sid, "unfilled", f"entry order {st} at broker", None, oid))
+        elif st == "pending_cancel":
+            out.append(ReconcileAction(sid, "pending", "cancel requested — waiting for the broker", None, oid))
         elif st == "partially_filled":
-            out.append(ReconcileAction(sid, "pending", "partial fill — waiting", None, oid))
+            age = _order_age_min(po, o, now, fill_wait_min)
+            if age >= fill_wait_min:
+                out.append(ReconcileAction(sid, "cancel_unfilled",
+                                           f"partially filled for {age:.0f}m — cancel the remainder", None, oid))
+            else:
+                out.append(ReconcileAction(sid, "pending", "partial fill — waiting", None, oid))
         elif st in _LIVE_ORDER:
             age = _order_age_min(po, o, now, fill_wait_min)
             if age >= fill_wait_min:
@@ -313,13 +335,26 @@ def reconcile_closing(closing: list[dict], pending: dict[str, dict], lookup,
     for s in closing:
         sid = s["structure_id"]
         po = pending.get(sid) or {}
-        coid = po.get("client_order_id") or s.get("client_order_id")
-        o = lookup(coid) if coid else None
+        # DEVLOG #28: the CLOSE order id only — never the entry's id (a missing
+        # kv record once resolved to the filled entry and 'closed' the
+        # structure at pnl 0 while the broker still held it)
+        coid = po.get("client_order_id") or s.get("close_client_order_id")
+        if not coid:
+            out.append(ReconcileAction(sid, "reverted", "no close order record — back to open"))
+            continue
+        o = lookup(coid)
         if not o:
-            out.append(ReconcileAction(sid, "pending", f"order {coid} not found at broker — waiting"))
+            age = _order_age_min(po, {}, now, 0.0)
+            if age >= NOT_FOUND_GRACE_MULT * fill_wait_min:
+                out.append(ReconcileAction(sid, "reverted", f"close order never seen at broker ({age:.0f}m)"))
+            else:
+                out.append(ReconcileAction(sid, "pending", f"order {coid} not found at broker — waiting"))
             continue
         st = o.get("status", "unknown")
         oid = o.get("id")
+        if st == "pending_cancel":
+            out.append(ReconcileAction(sid, "pending", "cancel requested — waiting for the broker", None, oid))
+            continue
         if st == "filled":
             fills, _ = fills_from_order(o, s["legs_json"])
             qty = s["qty"]
@@ -358,12 +393,14 @@ def integrity_check(open_structures: list[dict], broker_positions: list[dict]) -
     not unknown (DEVLOG #20). Book legs missing at the broker are reported as
     drift in the reason (ok=True): that is a stale store, not a naked risk."""
     book_syms: dict[str, int] = {}
+    known_qty: dict[str, int] = {}     # every known leg incl. working entries (DEVLOG #28)
     known: set[str] = set()
     for s in open_structures:
         if s["status"] not in KNOWN_STATUSES:
             continue
         for leg in legs_from_json(s["legs_json"]):
             known.add(leg.contract.symbol)
+            known_qty[leg.contract.symbol] = known_qty.get(leg.contract.symbol, 0) + leg.qty * s["qty"]
             if s["status"] in BOOK_STATUSES:
                 book_syms[leg.contract.symbol] = book_syms.get(leg.contract.symbol, 0) + leg.qty * s["qty"]
 
@@ -373,9 +410,10 @@ def integrity_check(open_structures: list[dict], broker_positions: list[dict]) -
     unknown = set(broker_syms) - known
     if unknown:
         return False, f"unknown option positions at broker: {sorted(unknown)}"
-    # naked short: any net-short symbol at broker with no long leg in the same expiry+right book-side
+    # naked short: a net-short symbol at the broker that no known structure
+    # (open, closing, or an entry that may just have filled) accounts for
     for sym, bq in broker_syms.items():
-        if bq < 0 and book_syms.get(sym, 0) >= 0:
+        if bq < 0 and known_qty.get(sym, 0) >= 0:
             return False, f"naked short at broker not in book: {sym}"
     missing = sorted(sym for sym, q in book_syms.items() if q != broker_syms.get(sym, 0))
     if missing:
