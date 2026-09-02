@@ -14,6 +14,13 @@ $env:PYTHONPATH = "$repo\src"
 python -m thetadesk.main verify-journal
 if ($LASTEXITCODE -ne 0) { Write-Host "publish: hash chain does not verify - refusing"; exit 1 }
 
+# refresh the INDEPENDENT comparison against the broker's fills first, so the
+# claims block quotes this session and not the last time anyone ran it by hand
+# (claim 10 read $764 while the store read $785 — the desk's own close of the
+# SPY 751 put was simply not in the last broker_check). Non-fatal: without
+# credentials the older comparison stands and the reconciler still passes.
+python tools/broker_check.py | Out-Null
+
 # regenerate the claims block and the verification transcript from the journal
 python tools/reconcile.py --write | Out-Null
 python tools/publish_prep.py
