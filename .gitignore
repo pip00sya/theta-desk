@@ -10,6 +10,10 @@ data/alerts.log
 # journal + snapshots ARE committed: reconcile and replay need them
 !data/journal/
 !data/snapshots/
+# raw tick snapshots stay local; the repo carries the gzipped form
+# (tools/publish_prep.py), which tools/replay.py reads transparently
+data/snapshots/*.json
+!data/snapshots/*.json.gz
 data/tick.log
 submission/_video/
 data/notes/*.digest

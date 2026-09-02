@@ -10,6 +10,7 @@ Exit 0 = every snapshot reproduces; 1 = divergence (printed).
 """
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 from datetime import date
@@ -42,12 +43,23 @@ def main() -> int:
     mismatches = checked = 0
     for want in with_snap:
         sp = cfg.snapshot_dir / want["snapshot"]
-        if not sp.exists():
+        gz = sp.with_suffix(".json.gz")     # published form (tools/publish_prep.py)
+        if not sp.exists() and not gz.exists():
             print(f"  [{want['snapshot']}] snapshot file missing — SKIP")
             continue
         checked += 1
-        snap = json.loads(sp.read_text(encoding="utf-8"))
+        if sp.exists():
+            snap = json.loads(sp.read_text(encoding="utf-8"))
+        else:
+            with gzip.open(gz, "rt", encoding="utf-8") as f:
+                snap = json.load(f)
         parsed = sel.parse_chain(snap["chain"])
+        # DEVLOG #29d: a snapshot can carry more than one underlying (the book
+        # or a shadow book holds QQQ, so its chain is fetched and merged for
+        # marking). Signals and the selector see the PRIMARY only, exactly as
+        # the tick does — otherwise foreign strikes land in the ATM strip.
+        primary = cfg["universe"]["primary"]
+        parsed = [e for e in parsed if e.symbol.startswith(primary)] or parsed
         sig = sigmod.compute(parsed, snap["closes"], snap["spot"],
                              cfg["regime"]["rv_lookback_days"])
         got = sig.to_dict()
