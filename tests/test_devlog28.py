@@ -306,3 +306,57 @@ def test_marks_never_crash_on_an_underlying_without_a_spot(tmp_path):
     assert out["_unpriced_underlyings"] == ["QQQ"]
     assert isinstance(out["shadow_nogates"], float)      # marked what it could
     st.conn.close()
+
+
+def test_unfilled_entry_gives_back_the_daily_risk_budget(scratch, monkeypatch):
+    """DEVLOG #29c: three condors were sent, one filled, and the daily budget
+    stayed charged for all three — the desk locked itself out of the session."""
+    m, tmp_path = scratch
+
+    class NeverFills(MockAlpacaClient):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.submitted_ids = []
+
+        def submit_order(self, payload):
+            rec = super().submit_order(payload)
+            self.submitted_ids.append(payload["client_order_id"])
+            return rec
+
+        def order_by_client_id(self, coid):
+            for o in self.submitted:
+                if o.get("client_order_id") == coid:
+                    return {**o, "status": "canceled", "filled_qty": "0"}
+            return None
+
+        def positions(self):
+            return []
+
+    broker = NeverFills(realized_scale=0.70)
+    monkeypatch.setattr(m, "make_client", lambda mock: broker)
+
+    class Live:
+        mock = False
+        dry_run = False
+    monkeypatch.setenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
+    from thetadesk.execution import cli_bridge
+    monkeypatch.setattr(cli_bridge, "cli_available", lambda: False)
+
+    assert m.cmd_tick_locked(Live()) == 0                      # tick 1: order sent
+    st = m.Store(m.cfgmod.load().db_path)
+    charged = st.get_counter(m._today(), "new_risk")
+    st.conn.close()
+    assert charged > 0                                         # budget committed while working
+
+    # tick 2: the broker confirms the order never filled; the desk gives the
+    # budget back and re-proposes, so the charge stays at ONE working order
+    assert m.cmd_tick_locked(Live()) == 0
+    st = m.Store(m.cfgmod.load().db_path)
+    after = st.get_counter(m._today(), "new_risk")
+    st.conn.close()
+    released = [e for e in _journal(tmp_path) if e["kind"] == "new_risk_released"]
+    assert released and abs(released[0]["data"]["risk"] - charged) < 1.0
+    # one working order's worth, not two: the re-proposal may be priced a
+    # little differently, but the cancelled one is no longer charged
+    assert after < charged * 1.5, (
+        f"budget charged {after} while only one order (~{charged}) is working")

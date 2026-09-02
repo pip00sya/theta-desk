@@ -138,6 +138,27 @@ def cmd_tick(args) -> int:
     hwm = max(float(store.get_kv("high_watermark", "0") or 0), equity)
     store.set_kv("high_watermark", str(hwm))
 
+    def release_new_risk(s: dict) -> None:
+        """DEVLOG #29c: gate #9 counts new risk when the ORDER IS SENT, which
+        is right while it is working (it may fill), but the count was never
+        given back when the broker confirmed it never filled. Live on Sep 2:
+        $2,425 of a $2,521 daily budget consumed by three condors of which
+        exactly one existed — the desk had locked itself out of the session
+        over risk it was not carrying."""
+        try:
+            day = (datetime.fromisoformat(s.get("opened_utc") or "")
+                   + SESSION_TZ_OFFSET).date().isoformat()
+        except ValueError:
+            return
+        if day != _today():
+            return                      # yesterday's order, yesterday's budget
+        risk = float(s.get("max_loss") or 0.0)
+        if risk <= 0:
+            return
+        store.add_counter(_today(), "new_risk", -risk)
+        journal.append("new_risk_released", {"structure_id": s["structure_id"], "risk": risk,
+                                             "reason": "entry order never filled"})
+
     def reconcile_working() -> None:
         # ---- reconcile working close orders (DEVLOG #19) -----------------
         # A close is CLOSED only when the broker says filled. Marking it
@@ -209,8 +230,10 @@ def cmd_tick(args) -> int:
                                                               "error": str(e)[:300]})
                         continue
                     store.set_status(ra.structure_id, "unfilled")
+                    release_new_risk(s)
                 elif ra.action == "unfilled":
                     store.set_status(ra.structure_id, "unfilled")
+                    release_new_risk(s)
 
     def check_integrity() -> tuple[bool, str]:
         # ---- integrity: the broker is the source of truth --------------
