@@ -20,20 +20,36 @@ from ..config import Config
 from ..data.signals import MarketSignals
 from . import llm
 
+# DEVLOG #28: the score's meaning was never defined in the prompts, so the
+# second-opinion model read vrp=1.0 (IV 5x RV) as "cheap" and 3 of 3 live
+# "disagreements" that halved size came from vocabulary, not information.
+REGIME_GLOSSARY = (
+    "Definitions (use exactly these): vrp_score = 0.5 + (atm_iv - rv20) / rv20, clipped to "
+    "[0, 1]. 0.5 means implied vol equals realized. 'rich' = implied vol EXPENSIVE relative "
+    "to realized (score >= 0.60, i.e. IV at least 10% above RV; favours SELLING premium). "
+    "'cheap' = implied vol BELOW realized (score < 0.40; favours BUYING convexity). "
+    "'neutral' = in between. A high score can never mean 'cheap'. If the inputs look "
+    "corrupted (e.g. IV above 60%, or a spot that does not match the strikes you know), "
+    "set \"data_suspect\": true. "
+)
+
 ANALYST_SYSTEM = (
     "You are the volatility analyst on an autonomous options desk trading SPY/QQQ "
     "index options in a PAPER account. You receive deterministic signals (spot, "
     "20d realized vol, ATM IV, VRP score). Your job is qualitative: classify the "
     "regime and flag anything the raw numbers may hide. You do NOT pick strikes "
-    "and you cannot override risk gates. Reply with ONE JSON object only: "
-    '{"regime": "rich"|"neutral"|"cheap", "confidence": 0.0-1.0, "rationale": "<2 sentences>"}'
+    "and you cannot override risk gates. " + REGIME_GLOSSARY +
+    "Reply with ONE JSON object only: "
+    '{"regime": "rich"|"neutral"|"cheap", "confidence": 0.0-1.0, "data_suspect": true|false, '
+    '"rationale": "<2 sentences>"}'
 )
 
 SECOND_SYSTEM = (
     "You are an independent second-opinion model on an options desk. Same inputs, "
     "no knowledge of the primary analyst's view. Classify the volatility regime. "
+    + REGIME_GLOSSARY +
     'Reply with ONE JSON object only: {"regime": "rich"|"neutral"|"cheap", '
-    '"confidence": 0.0-1.0, "rationale": "<2 sentences>"}'
+    '"confidence": 0.0-1.0, "data_suspect": true|false, "rationale": "<2 sentences>"}'
 )
 
 VETOER_SYSTEM = (
@@ -65,6 +81,7 @@ class DeskView:
     objection_severity: str
     exchanges: list[dict] = field(default_factory=list)
     fallbacks: list[str] = field(default_factory=list)
+    data_suspect: bool = False   # an LLM flagged the raw inputs as corrupted (DEVLOG #28)
 
     @property
     def size_mult(self) -> float:
@@ -112,7 +129,12 @@ def run_desk(signals: MarketSignals, headlines: list[str], candidate_desc: str,
         if not ex.ok:
             fallbacks.append(f"{role}: {ex.fallback_reason}")
             return None
-        return llm.extract_json(ex.response_text)
+        out = llm.extract_json(ex.response_text)
+        if out is None:
+            # DEVLOG #28: a reply the desk cannot parse is a fallback too —
+            # before this it silently became the deterministic default
+            fallbacks.append(f"{role}: parse_failure")
+        return out
 
     a = ask("vol_analyst", L["analyst_provider"], L["analyst_model"],
             ANALYST_SYSTEM, f"Signals: {sig_txt}")
@@ -125,21 +147,30 @@ def run_desk(signals: MarketSignals, headlines: list[str], candidate_desc: str,
             RISK_OFFICER_SYSTEM,
             f"Candidate: {candidate_desc}\nBook: {book_desc}\nSignals: {sig_txt}")
 
-    regime_a = (a or {}).get("regime", det)
-    regime_s = (s or {}).get("regime", det)
+    regime_a = str((a or {}).get("regime", det)).strip().lower()
+    regime_s = str((s or {}).get("regime", det)).strip().lower()
     if regime_a not in ("rich", "neutral", "cheap"):
         regime_a = det
     if regime_s not in ("rich", "neutral", "cheap"):
         regime_s = det
+    # strict booleans: the 7B vetoer may answer "false" as a string
+    raw_veto = (v or {}).get("veto", False)
+    veto = raw_veto if isinstance(raw_veto, bool) else str(raw_veto).strip().lower() == "true"
+    severity = str((r or {}).get("severity", "low")).strip().lower()
+    if severity not in ("low", "medium", "high"):
+        severity = "low"
+    data_suspect = any(bool(x.get("data_suspect")) is True or str(x.get("data_suspect")).lower() == "true"
+                       for x in (a, s) if x)
 
     return DeskView(
         regime_analyst=regime_a,
         regime_second=regime_s,
         disagreement=(regime_a != regime_s),
-        veto=bool((v or {}).get("veto", False)),
+        veto=veto,
         veto_reason=(v or {}).get("reason", "no veto (default)" if v is None else ""),
         objection=(r or {}).get("objection", "risk officer unavailable"),
-        objection_severity=(r or {}).get("severity", "low"),
+        objection_severity=severity,
         exchanges=exchanges,
         fallbacks=fallbacks,
+        data_suspect=data_suspect,
     )

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 
 import requests
@@ -40,7 +41,13 @@ def _hash(s: str) -> str:
 
 
 def call(role: str, provider: str, model: str, system: str, user: str,
-         timeout_s: int = 45, max_tokens: int = 700) -> LLMExchange:
+         timeout_s: int = 45, max_tokens: int = 2000) -> LLMExchange:
+    """DEVLOG #28: an EMPTY reply is a fallback, not a success. Claude Sonnet 5
+    thinks adaptively by default and the thinking shares `max_tokens`; with
+    700 tokens a long think exhausted the budget before any text block, and
+    ok=True with '' silently defaulted the risk officer to 'low' and wiped a
+    daily note. Now: effort=low for these short JSON roles, a larger budget,
+    and stop_reason/emptiness are checked."""
     ph = _hash(system + "\n" + user)
     try:
         if provider == "anthropic":
@@ -49,28 +56,38 @@ def call(role: str, provider: str, model: str, system: str, user: str,
                 return LLMExchange(role, provider, model, ph, "", False, "no ANTHROPIC_API_KEY")
             r = requests.post(ANTHROPIC_URL, timeout=timeout_s, json={
                 "model": model, "max_tokens": max_tokens, "system": system,
+                "output_config": {"effort": "low"},
                 "messages": [{"role": "user", "content": user}],
             }, headers={"x-api-key": key, "anthropic-version": "2023-06-01",
                         "content-type": "application/json"})
             r.raise_for_status()
-            text = "".join(b.get("text", "") for b in r.json().get("content", []))
+            j = r.json()
+            text = "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
+            stop = j.get("stop_reason")
+            if stop in ("max_tokens", "refusal") or not text.strip():
+                return LLMExchange(role, provider, model, ph, text, False,
+                                   f"empty_or_truncated_reply stop_reason={stop}")
             return LLMExchange(role, provider, model, ph, text, True)
         if provider == "featherless":
             key = os.environ.get("FEATHERLESS_API_KEY")
             if not key:
                 return LLMExchange(role, provider, model, ph, "", False, "no FEATHERLESS_API_KEY")
-            body = {"model": model, "max_tokens": max_tokens,
+            # temperature 0 + seed: identical headlines must not yield a
+            # different veto on the next tick (they did, 3 flips in 30 min)
+            body = {"model": model, "max_tokens": max_tokens, "temperature": 0, "seed": 7,
                     "messages": [{"role": "system", "content": system},
                                  {"role": "user", "content": user}]}
             r = requests.post(FEATHERLESS_URL, timeout=timeout_s, json=body,
                               headers={"Authorization": f"Bearer {key}"})
             # quota/auth exhaustion on the primary key -> one retry on backup
             backup = os.environ.get("FEATHERLESS_API_KEY_BACKUP")
-            if r.status_code in (401, 402, 403, 429) and backup:
+            if r.status_code in (401, 402, 429) and backup:
                 r = requests.post(FEATHERLESS_URL, timeout=timeout_s, json=body,
                                   headers={"Authorization": f"Bearer {backup}"})
             r.raise_for_status()
-            text = r.json()["choices"][0]["message"]["content"]
+            text = r.json()["choices"][0]["message"]["content"] or ""
+            if not text.strip():
+                return LLMExchange(role, provider, model, ph, text, False, "empty_reply")
             return LLMExchange(role, provider, model, ph, text, True)
         return LLMExchange(role, provider, model, ph, "", False, f"unknown provider {provider}")
     except Exception as e:  # network/timeout/parse — desk must not die on LLM failure
@@ -78,19 +95,33 @@ def call(role: str, provider: str, model: str, system: str, user: str,
 
 
 def extract_json(text: str) -> dict | None:
-    """Extract the first JSON object from a model response."""
-    start = text.find("{")
-    if start < 0:
+    """Extract the first JSON object from a model response.
+
+    Tries, in order: the whole text, a ```json fence, then raw_decode at every
+    '{' (string-aware, so a brace inside a rationale does not end the scan)."""
+    if not text:
         return None
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(text[start:i + 1])
-                except json.JSONDecodeError:
-                    return None
+    dec = json.JSONDecoder()
+    try:
+        obj = json.loads(text.strip())
+        return obj if isinstance(obj, dict) else None
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    if m:
+        try:
+            obj = json.loads(m.group(1))
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = dec.raw_decode(text[i:])
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            continue
     return None

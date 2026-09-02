@@ -95,18 +95,21 @@ class MockAlpacaClient:
                 out[sym] = {
                     "latestQuote": {"bp": round(mid - half, 2), "ap": round(mid + half, 2),
                                     "bs": 10, "as": 10, "t": now.isoformat()},
+                    # vega in Alpaca's convention: per share per 1 vol POINT
                     "greeks": {"delta": round(g.delta, 4), "gamma": round(g.gamma, 6),
-                               "theta": round(g.theta, 4), "vega": round(g.vega, 4),
+                               "theta": round(g.theta, 4), "vega": round(g.vega / 100.0, 4),
                                "rho": round(g.rho, 4)},
                     "impliedVolatility": round(iv, 4),
                 }
         return out
 
-    def stock_bars_daily(self, symbol: str, days: int = 40) -> list[dict]:
+    def stock_bars_daily(self, symbol: str, days: int = 40,
+                         exclude_date: str | None = None) -> list[dict]:
         """Deterministic path with alternating +/-sigma daily log-returns, so
         realized vol == atm_iv * realized_scale exactly (up to the n/(n-1)
         sample factor). Random walks with a 20-point lookback were too noisy
-        to test regime branches reliably — see DEVLOG."""
+        to test regime branches reliably — see DEVLOG. Bars are the last
+        `days` weekdays ending YESTERDAY, like the fixed live client."""
         daily_sigma = self.atm_iv * self.realized_scale / math.sqrt(252)
         px = self.spot
         rets = []
@@ -118,17 +121,22 @@ class MockAlpacaClient:
             px /= math.exp(r)
         closes.reverse()
         scale = self.spot / closes[-1]
+        # the last `days` weekdays ending yesterday (today's bar is in progress
+        # and excluded by the live client too)
+        dates = []
+        d = datetime.now(timezone.utc) - timedelta(days=1)
+        while len(dates) < days:
+            if d.weekday() < 5:
+                dates.append(d)
+            d -= timedelta(days=1)
+        dates.reverse()
         bars = []
-        d = datetime.now(timezone.utc) - timedelta(days=days * 2)
-        i = 0
-        while i < days:
-            d += timedelta(days=1)
-            if d.weekday() >= 5:
-                continue
+        for i, d in enumerate(dates):
             c = closes[i] * scale
-            bars.append({"t": d.strftime("%Y-%m-%dT00:00:00Z"), "o": c, "h": c, "l": c,
+            bars.append({"t": d.strftime("%Y-%m-%dT04:00:00Z"), "o": c, "h": c, "l": c,
                          "c": round(c, 4), "v": 1_000_000})
-            i += 1
+        if exclude_date:
+            bars = [b for b in bars if b["t"][:10] < exclude_date]
         return bars
 
     def latest_stock_quote(self, symbol: str) -> dict:

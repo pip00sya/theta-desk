@@ -1,5 +1,7 @@
 # Known macro releases inside/near the competition window (RED-TEAM P2).
 # class: high -> gate #17 de-risks beforehand; medium -> size haircut only.
+# DEVLOG #28: the calendar used to END at the deadline while the account keeps
+# trading unattended until the Sep 18 horizon; CPI and FOMC were missing.
 events:
   - name: "ISM Manufacturing PMI"
     utc: "2026-09-01T14:00:00Z"
@@ -7,3 +9,12 @@ events:
   - name: "Nonfarm Payrolls (NFP)"
     utc: "2026-09-04T12:30:00Z"   # 08:30 ET, DEADLINE DAY
     class: high
+  - name: "CPI (August)"
+    utc: "2026-09-10T12:30:00Z"   # BLS schedule — verify on bls.gov/schedule
+    class: high
+  - name: "FOMC statement + press conference"
+    utc: "2026-09-16T18:00:00Z"   # meeting Sep 15-16; presser 18:30Z
+    class: high
+  - name: "Quarterly expiry / SPY ex-dividend"
+    utc: "2026-09-18T13:30:00Z"   # quad witching; SPY goes ex-div this day
+    class: medium

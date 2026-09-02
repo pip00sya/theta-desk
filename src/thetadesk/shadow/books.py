@@ -77,33 +77,40 @@ def book_greeks_dollars(legs, chain: dict[str, dict]) -> tuple[float, float, flo
         g = (chain.get(leg.contract.symbol) or {}).get("greeks") or {}
         d += leg.qty * float(g.get("delta") or 0) * 100
         t += leg.qty * float(g.get("theta") or 0) * 100
-        v += leg.qty * float(g.get("vega") or 0) * 100 / 100.0
+        # Alpaca's vega is per share per 1 VOL POINT (0.58 for an ATM SPY put);
+        # one contract = x100. It was divided by 100 again (DEVLOG #28), so
+        # every vega$ in the marks table was 100x too small.
+        v += leg.qty * float(g.get("vega") or 0) * 100
     return round(d, 2), round(t, 2), round(v, 2)
 
 
 def mark_all_books(store: Store, spot: float, asof: datetime,
                    iv_map: dict[str, float], real_realized: float,
                    broker_equity: float | None = None,
-                   chain: dict[str, dict] | None = None) -> dict[str, float]:
+                   chain: dict[str, dict] | None = None,
+                   quality: str = "ok") -> dict[str, float]:
+    """`quality` tags every mark row ('ok' | 'suspect') so the dashboard can
+    quarantine ticks whose inputs failed the data-quality gate (DEVLOG #28)."""
     out: dict[str, float] = {}
+    detail = {"quality": quality}
 
     legs_real = real_book_legs(store)
     real = mark_to_model(legs_real, spot, asof, iv_map)
     gd, gt, gv = book_greeks_dollars(legs_real, chain or {})
     store.add_mark("real", broker_equity, real, real_realized,
-                   theta=gt, delta=gd, vega=gv)
+                   theta=gt, delta=gd, vega=gv, detail=detail)
     out["real"] = real + real_realized
 
     nogates = mark_to_model(shadow_legs(store, "shadow_nogates"), spot, asof, iv_map)
-    store.add_mark("shadow_nogates", None, nogates, 0.0)
+    store.add_mark("shadow_nogates", None, nogates, 0.0, detail=detail)
     out["shadow_nogates"] = nogates
 
     nohedge = mark_to_model(real_book_legs(store, exclude_sleeve="hedge"), spot, asof, iv_map)
-    store.add_mark("shadow_nohedge", None, nohedge, real_realized)
+    store.add_mark("shadow_nohedge", None, nohedge, real_realized, detail=detail)
     out["shadow_nohedge"] = nohedge + real_realized
 
     naive = mark_to_model(shadow_legs(store, "baseline_naive"), spot, asof, iv_map)
-    store.add_mark("baseline_naive", None, naive, 0.0)
+    store.add_mark("baseline_naive", None, naive, 0.0, detail=detail)
     out["baseline_naive"] = naive
     return out
 

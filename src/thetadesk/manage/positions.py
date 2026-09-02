@@ -96,6 +96,22 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
             continue
         qty = s["qty"]
         credit = s["net_credit"]
+        # DEVLOG #28: legs_json holds PER-UNIT quantities, so structure_mtm is
+        # per unit while max_profit/cost below are scaled by qty — every exit
+        # threshold was multiplied by qty for qty >= 2. Scale the mark once.
+        mtm = mtm * qty
+
+        # the hedge sleeve is insurance, not a trade: no profit-taking, no
+        # idle-day realization, no event lock — only the time stop (DEVLOG #28)
+        if s.get("sleeve") == "hedge":
+            dtes = [(l.contract.expiry - now.date()).days for l in legs]
+            if min(dtes) < cfg_mgmt["time_stop_dte"]:
+                actions.append(ManageAction(s["structure_id"], "close",
+                                            f"time stop: min DTE {min(dtes)} < {cfg_mgmt['time_stop_dte']}",
+                                            mtm))
+            else:
+                actions.append(ManageAction(s["structure_id"], "hold", "hedge sleeve — held"))
+            continue
 
         if credit > 0:  # short-premium structure
             max_profit = credit * 100 * qty
@@ -137,8 +153,12 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
 
     # realization policy: idle day -> close the best candidate >= 25%,
     # but only once the day has actually been idle (last hour of the session)
-    in_window = (minutes_to_close is None or realize_window_min is None
-                 or minutes_to_close <= realize_window_min)
+    # DEVLOG #28: with a window configured, an UNKNOWN clock (None = market
+    # closed) is OUT of the window — it used to count as "inside", so the
+    # rule fired on every post-close and holiday tick. Offline callers that
+    # configure no window keep the anytime behaviour.
+    in_window = (realize_window_min is None
+                 or (minutes_to_close is not None and minutes_to_close <= realize_window_min))
     if entries_today == 0 and realize_candidates and in_window:
         realize_candidates.sort(key=lambda t: -t[0])
         frac, s, mtm = realize_candidates[0]

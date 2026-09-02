@@ -25,6 +25,22 @@ class AlpacaError(RuntimeError):
     pass
 
 
+def _retry_after_seconds(header: str | None, default: float) -> float:
+    """Retry-After may be seconds or an HTTP-date (RFC 7231); never crash on it."""
+    if not header:
+        return default
+    try:
+        return min(float(header), 30.0)
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        delta = (parsedate_to_datetime(header) - datetime.now(timezone.utc)).total_seconds()
+        return max(0.5, min(delta, 30.0))
+    except Exception:
+        return default
+
+
 class AlpacaClient:
     def __init__(self, session: requests.Session | None = None):
         assert_paper_only()
@@ -37,16 +53,36 @@ class AlpacaClient:
     # -- plumbing ---------------------------------------------------------
     def _req(self, method: str, url: str, *, params: dict | None = None,
              json: dict | None = None, retries: int = 3) -> Any:
+        """GET/DELETE retry on 429/5xx AND on transport errors (DNS, reset,
+        timeout — a tick fired seconds after the laptop wakes hits these
+        before Wi-Fi is back, DEVLOG #28). POST is never retried: a second
+        POST /v2/orders with the same client_order_id is a duplicate, not a
+        retry — the caller reconciles by client_order_id instead."""
+        last_err = ""
         for attempt in range(retries + 1):
-            resp = self.s.request(method, url, params=params, json=json, timeout=20)
-            if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries:
-                wait = float(resp.headers.get("Retry-After", 1.5 * (attempt + 1)))
-                time.sleep(wait)
+            try:
+                resp = self.s.request(method, url, params=params, json=json, timeout=20)
+            except requests.RequestException as e:
+                last_err = f"{type(e).__name__}: {e}"
+                if method == "POST" or attempt >= retries:
+                    raise AlpacaError(f"{method} {url}: {last_err}") from e
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries and method != "POST":
+                time.sleep(_retry_after_seconds(resp.headers.get("Retry-After"), 1.5 * (attempt + 1)))
                 continue
             if resp.status_code >= 400:
                 raise AlpacaError(f"{method} {url} -> {resp.status_code}: {resp.text[:400]}")
-            return resp.json() if resp.text else {}
-        raise AlpacaError(f"{method} {url}: retries exhausted")
+            if not resp.text:
+                return {}
+            try:
+                return resp.json()
+            except ValueError as e:  # HTML error page behind a 200 (CDN incident)
+                last_err = f"non-JSON body: {resp.text[:120]!r}"
+                if method == "POST" or attempt >= retries:
+                    raise AlpacaError(f"{method} {url}: {last_err}") from e
+                time.sleep(2.0 * (attempt + 1))
+        raise AlpacaError(f"{method} {url}: retries exhausted ({last_err})")
 
     # -- trading ----------------------------------------------------------
     def account(self) -> dict:
@@ -103,12 +139,24 @@ class AlpacaClient:
             if not token:
                 return out
 
-    def stock_bars_daily(self, symbol: str, days: int = 40) -> list[dict]:
-        start = (datetime.now(timezone.utc) - timedelta(days=days * 2)).strftime("%Y-%m-%d")
+    def stock_bars_daily(self, symbol: str, days: int = 40,
+                         exclude_date: str | None = None) -> list[dict]:
+        """The LAST `days` completed daily bars, oldest first.
+
+        DEVLOG #28: the previous request (start = 2*days ago, limit = days,
+        default sort asc) returned the FIRST `days` bars after start, so the
+        realized-vol window ended ~12 trading days before today. Now the
+        request is sorted desc and reversed. `exclude_date` (the session date)
+        drops the in-progress bar of the current session, otherwise a partial
+        day would enter the realized-vol sample and drift every 15 minutes."""
+        start = (datetime.now(timezone.utc) - timedelta(days=days * 3)).strftime("%Y-%m-%d")
         j = self._req("GET", f"{DATA}/v2/stocks/{symbol}/bars",
-                      params={"timeframe": "1Day", "start": start, "limit": days,
-                              "adjustment": "split", "feed": "iex"})
-        return j.get("bars") or []
+                      params={"timeframe": "1Day", "start": start, "limit": days + 5,
+                              "adjustment": "split", "feed": "iex", "sort": "desc"})
+        bars = list(reversed(j.get("bars") or []))
+        if exclude_date:
+            bars = [b for b in bars if str(b.get("t", ""))[:10] < exclude_date]
+        return bars[-days:]
 
     def latest_stock_quote(self, symbol: str) -> dict:
         j = self._req("GET", f"{DATA}/v2/stocks/{symbol}/quotes/latest",

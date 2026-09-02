@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+
+def session_date() -> str:
+    """The New York session date (DEVLOG #18/#28): the host's local date is
+    already tomorrow when the 20:15 UTC post-close run archives the day."""
+    return (datetime.now(timezone.utc) - timedelta(hours=4)).date().isoformat()
 
 
 def collect(client, out_dir: Path) -> list[str]:
@@ -37,7 +43,7 @@ def main() -> int:
     from ..data.alpaca_client import AlpacaClient
     cfg = cfgmod.load()
     client = AlpacaClient()
-    out = cfg.evidence_dir / date.today().isoformat()
+    out = cfg.evidence_dir / session_date()
     saved = collect(client, out)
     print(f"evidence saved to {out}: {', '.join(saved)}")
     return 0

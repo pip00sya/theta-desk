@@ -133,9 +133,10 @@ def test_realization_policy_only_in_last_hour():
     assert a.action == "hold"
     [a] = review_book([s], minutes_to_close=45, **common)
     assert a.action == "close" and "realization policy" in a.reason
-    # offline callers (no clock) keep the old behaviour
+    # DEVLOG #28: with a window configured, an unknown clock (market closed)
+    # is OUT of the window — it used to fire on every post-close tick
     [a] = review_book([s], minutes_to_close=None, **common)
-    assert a.action == "close"
+    assert a.action == "hold"
 
 
 def test_tick_lock_is_atomic_and_expires(tmp_path):

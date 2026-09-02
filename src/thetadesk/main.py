@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
@@ -27,6 +28,7 @@ from .data import signals as sigmod
 from .engine import selector as sel
 from .engine.contracts import Leg, Structure
 from .engine.gates import run_entry_gates
+from .engine.liquidity import check_quote
 from .execution import cli_bridge, idempotency, mleg
 from .manage.positions import (apply_fills, integrity_check, legs_from_json,
                                reconcile_closing, reconcile_pending, review_book,
@@ -76,34 +78,181 @@ def make_client(mock: bool):
     return AlpacaClient()
 
 
+def _underlying_of(symbol: str) -> str:
+    return symbol[:next(i for i, ch in enumerate(symbol) if ch.isdigit())]
+
+
+def _adopt_unknown_longs(store: Store, broker_positions: list[dict], known: set[str],
+                         journal: Journal) -> list[str]:
+    """DEVLOG #28: an option position the store does not know about used to
+    halt the desk forever (exit 2 every tick until a human edited the store).
+    A LONG option is bounded risk (the debit): adopt it as its own structure
+    so the existing exits (+60% target, time stop, event lock) manage it and
+    the marks include it. A naked SHORT is still a halt — nothing here trades."""
+    adopted = []
+    for p in broker_positions:
+        sym = p.get("symbol", "")
+        if len(sym) <= 12 or sym in known:
+            continue
+        qty = int(float(p.get("qty") or 0))
+        if qty <= 0:
+            continue
+        px = float(p.get("avg_entry_price") or 0.0)
+        sid = "adopt-" + sym.lower()
+        store.upsert_structure(sid, "adopted_long", "core", qty,
+                               json.dumps([{"symbol": sym, "qty": 1, "entry_price": px}]),
+                               -px, px * 100, "open")
+        journal.append("adopted_position", {"structure_id": sid, "symbol": sym, "qty": qty,
+                                            "avg_entry_price": px})
+        adopted.append(sym)
+    return adopted
+
+
 def cmd_tick(args) -> int:
     if not args.mock:
         assert_paper_only()
     cfg = cfgmod.load()
+    dry = bool(args.dry_run or args.mock)
+    rehearsal = bool(args.dry_run and not args.mock)
+    if rehearsal and not os.environ.get("THETADESK_DATA_DIR"):
+        # DEVLOG #28: a rehearsal on the LIVE store closed real structures with
+        # an estimate and bumped the live counters. Point it at a scratch copy.
+        print("refusing --dry-run on the live data dir: set THETADESK_DATA_DIR=<scratch dir> "
+              "(or use --mock)", file=sys.stderr)
+        return 3
     store = Store(cfg.db_path)
     journal = Journal(cfg.journal_dir)
     client = make_client(args.mock)
-    dry = bool(args.dry_run or args.mock)
 
     journal.append("tick_start", {"mock": args.mock, "dry_run": dry})
 
-    # ---- L1: data --------------------------------------------------------
+    # ---- L1: account + clock ---------------------------------------------
     account = client.account()
     equity = float(account.get("equity") or 0.0)
     clock = client.clock()
     is_open, mins_from_open, mins_to_close = _clock_window(clock)
+    now = datetime.now(timezone.utc)
+    lookback = cfg["regime"]["rv_lookback_days"]
+    fill_wait = cfg["timing"]["fill_wait_min"]
 
     hwm = max(float(store.get_kv("high_watermark", "0") or 0), equity)
     store.set_kv("high_watermark", str(hwm))
 
+    def reconcile_working() -> None:
+        # ---- reconcile working close orders (DEVLOG #19) -----------------
+        # A close is CLOSED only when the broker says filled. Marking it
+        # closed on acceptance left an unfilled sell at the broker and a book
+        # that no longer knew about it -> integrity breach every tick.
+        closing = [s for s in store.open_structures() if s["status"] == "closing"]
+        if closing and not args.mock:
+            pend = {s["structure_id"]: json.loads(store.get_kv(f"close_order:{s['structure_id']}", "{}"))
+                    for s in closing}
+            for ra in reconcile_closing(closing, pend, client.order_by_client_id, now, fill_wait):
+                journal.append("close_reconcile", ra.__dict__)
+                if ra.action == "closed":
+                    store.set_status(ra.structure_id, "closed", ra.pnl)
+                    store.set_kv(f"close_missed:{ra.structure_id}", "")
+                elif ra.action == "cancel_revert":
+                    try:
+                        client.cancel_order(ra.order_id)
+                    except Exception as e:  # leave it 'closing'; next tick retries
+                        journal.append("close_cancel_failed", {"structure_id": ra.structure_id,
+                                                               "error": str(e)[:300]})
+                        continue
+                    store.set_status(ra.structure_id, "open")
+                    # DEVLOG #27/#28: the NEXT close of this structure in the
+                    # same session crosses the spread; a fresh decision on a
+                    # later day goes back to the mid (the raw attempt counter
+                    # never reset, so every later close hit the bid).
+                    store.set_kv(f"close_missed:{ra.structure_id}", _today())
+                elif ra.action == "reverted":
+                    store.set_status(ra.structure_id, "open")
+
+        # ---- reconcile working ENTRY orders (DEVLOG #20) -----------------
+        # The twin of the block above: an entry is OPEN only when the broker
+        # says filled, and its legs are repriced to the real fills.
+        pending = [s for s in store.open_structures() if s["status"] == "pending"]
+        if pending and not args.mock:
+            po_map = {s["structure_id"]: json.loads(store.get_kv(f"open_order:{s['structure_id']}", "{}"))
+                      for s in pending}
+            for ra in reconcile_pending(pending, po_map, client.order_by_client_id, now, fill_wait):
+                journal.append("open_reconcile", ra.__dict__)
+                s = next(x for x in pending if x["structure_id"] == ra.structure_id)
+                if ra.action == "filled":
+                    net = ra.net_credit if ra.net_credit is not None else s["net_credit"]
+                    store.set_fills(ra.structure_id, apply_fills(s["legs_json"], ra.fills or {}),
+                                    net, "open")
+                    # post-fill sanity: a fill far from the intended price means
+                    # the order meant something else (DEVLOG #12 would have tripped this)
+                    intended = s["net_credit"]
+                    if intended and abs(net - intended) > 0.30 * abs(intended):
+                        alerts.alert("WARN", "fill anomaly",
+                                     f"{s['kind']} {ra.structure_id}: intended {intended}, got {net}",
+                                     journal=journal)
+                elif ra.action == "cancel_unfilled":
+                    try:
+                        client.cancel_order(ra.order_id)
+                    except Exception as e:  # stays 'pending'; next tick retries
+                        journal.append("open_cancel_failed", {"structure_id": ra.structure_id,
+                                                              "error": str(e)[:300]})
+                        continue
+                    store.set_status(ra.structure_id, "unfilled")
+                elif ra.action == "unfilled":
+                    store.set_status(ra.structure_id, "unfilled")
+
+    def check_integrity() -> tuple[bool, str]:
+        # ---- integrity: the broker is the source of truth --------------
+        positions = client.positions() if not args.mock else []
+        open_structs = store.open_structures()
+        ok, why = integrity_check(open_structs, positions)
+        if not ok and why.startswith("unknown option positions"):
+            known = {d["symbol"] for s in open_structs for d in json.loads(s["legs_json"])}
+            adopted = _adopt_unknown_longs(store, positions, known, journal)
+            if adopted:
+                alerts.alert("WARN", "adopted unknown long positions", ", ".join(adopted),
+                             journal=journal)
+                ok, why = integrity_check(store.open_structures(), positions)
+        journal.append("integrity", {"ok": ok, "reason": why})
+        _alert_on_change(store, "integrity", not ok, "CRITICAL",
+                         "integrity breach — new risk halted", why, journal)
+        _alert_on_change(store, "drift", ok and "DRIFT" in why, "WARN", "book/broker drift",
+                         why, journal)
+        return ok, why
+
+    # ---- market closed: settle working orders, check the book, stop ------
+    # DEVLOG #28: the scheduler fires 30 min past the close and all day on
+    # exchange holidays; those ticks priced the book off a one-sided
+    # after-hours quote (spot = ask/2) and submitted closes into a closed
+    # market. Nothing is priced, marked or decided while the exchange is shut.
+    if not is_open:
+        reconcile_working()
+        ok, why = check_integrity()
+        journal.append("market_closed", {"next_open": clock.get("next_open"), "integrity_ok": ok})
+        store.set_kv("last_tick_ts", now.isoformat())
+        store.set_kv("last_tick_mode", "market_closed")
+        print(json.dumps({"market_closed": True, "next_open": clock.get("next_open")}))
+        return 0
+
+    # ---- L1: market data + data-quality gate ------------------------------
     primary = cfg["universe"]["primary"]
     expiry = cfg["expiry"]["target_expiry"]
     chain = client.option_chain(primary, expiry)
-    bars = client.stock_bars_daily(primary, days=cfg["regime"]["rv_lookback_days"] + 10)
+    bars = client.stock_bars_daily(primary, days=lookback + 10, exclude_date=_today())
     closes = [b["c"] for b in bars]
     q = client.latest_stock_quote(primary)
-    spot = 0.5 * (float(q.get("bp") or 0) + float(q.get("ap") or 0)) or (closes[-1] if closes else 0.0)
-    now = datetime.now(timezone.utc)
+    dq = sigmod.assess(q, closes, bars, _today(), lookback)
+    spot = dq.spot
+    if dq.reasons:
+        journal.append("data_quality", dq.to_dict())
+    if dq.mode == "skip":
+        reconcile_working()
+        check_integrity()
+        alerts.alert("WARN", "tick skipped: market data failed the quality gate",
+                     "; ".join(dq.reasons)[:400], journal=journal)
+        store.set_kv("last_tick_ts", now.isoformat())
+        store.set_kv("last_tick_mode", "skip")
+        print(json.dumps({"skipped": True, "data_quality": dq.to_dict()}))
+        return 0
 
     # DEVLOG #16: the book may hold several underlyings — every one of them
     # needs its own chain (marks, management, gates) and its own spot.
@@ -111,17 +260,32 @@ def cmd_tick(args) -> int:
     book_underlyings = set()
     for s in store.open_structures():
         for d in json.loads(s["legs_json"]):
-            book_underlyings.add(d["symbol"][:next(i for i, ch in enumerate(d["symbol"]) if ch.isdigit())])
+            book_underlyings.add(_underlying_of(d["symbol"]))
+    extra_chains: dict[str, dict] = {}
     for u in sorted(book_underlyings - {primary}):
-        extra = client.option_chain(u, expiry)
-        chain.update(extra)
+        extra_chains[u] = client.option_chain(u, expiry)
         uq = client.latest_stock_quote(u)
-        us = 0.5 * (float(uq.get("bp") or 0) + float(uq.get("ap") or 0))
-        if us > 0:
-            spot_map[u] = us
+        ub = client.stock_bars_daily(u, days=5, exclude_date=_today())
+        udq = sigmod.assess(uq, [b["c"] for b in ub], ub, _today(), lookback=1)
+        if udq.spot > 0 and udq.mode != "skip":
+            spot_map[u] = udq.spot
+            if udq.reasons:
+                journal.append("data_quality", {"underlying": u, **udq.to_dict()})
+        else:
+            journal.append("data_quality", {"underlying": u, **udq.to_dict()})
 
+    # DEVLOG #28: signals and the selector see ONLY the primary's chain — the
+    # merged chain (needed for marks/management of QQQ legs) polluted the
+    # nearest-the-money strip and the candidate pool with foreign strikes.
     entries = sel.parse_chain(chain)
-    signals = sigmod.compute(entries, closes, spot, cfg["regime"]["rv_lookback_days"])
+    signals = sigmod.compute(entries, closes, spot, lookback)
+    iv_reason = sigmod.check_iv(signals)
+    if iv_reason:
+        dq.mode = "mark_only"
+        dq.reasons.append(iv_reason)
+        journal.append("data_quality", dq.to_dict())
+    for extra in extra_chains.values():
+        chain.update(extra)
     iv_map = {sym: (s.get("impliedVolatility") or 0.20) for sym, s in chain.items()}
 
     # snapshot for replay — microsecond-unique name, referenced from the
@@ -131,76 +295,23 @@ def cmd_tick(args) -> int:
     snap_path.write_text(json.dumps({
         "ts": now.isoformat(), "spot": spot, "equity": equity,
         "signals": signals.to_dict(), "chain": chain, "closes": closes,
+        "data_quality": dq.to_dict(),
     }), encoding="utf-8")
-    journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name})
+    journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name,
+                               "data_quality": dq.mode})
 
-    # ---- reconcile working close orders (DEVLOG #19) ---------------------
-    # A close is CLOSED only when the broker says filled. Marking it closed on
-    # acceptance left an unfilled sell at the broker and a book that no longer
-    # knew about it -> integrity breach on every following tick.
-    closing = [s for s in store.open_structures() if s["status"] == "closing"]
-    if closing and not args.mock:
-        pend = {s["structure_id"]: json.loads(store.get_kv(f"close_order:{s['structure_id']}", "{}"))
-                for s in closing}
-        for ra in reconcile_closing(closing, pend, client.order_by_client_id, now,
-                                    cfg["timing"]["fill_wait_min"]):
-            journal.append("close_reconcile", ra.__dict__)
-            if ra.action == "closed":
-                store.set_status(ra.structure_id, "closed", ra.pnl)
-            elif ra.action == "cancel_revert":
-                try:
-                    client.cancel_order(ra.order_id)
-                except Exception as e:  # leave it 'closing'; next tick retries
-                    journal.append("close_cancel_failed", {"structure_id": ra.structure_id,
-                                                           "error": str(e)[:300]})
-                    continue
-                store.set_status(ra.structure_id, "open")
-            elif ra.action == "reverted":
-                store.set_status(ra.structure_id, "open")
-
-    # ---- reconcile working ENTRY orders (DEVLOG #20) ---------------------
-    # The twin of the block above: an entry is OPEN only when the broker says
-    # filled, and its legs are repriced to the real fills.
-    pending = [s for s in store.open_structures() if s["status"] == "pending"]
-    if pending and not args.mock:
-        po_map = {s["structure_id"]: json.loads(store.get_kv(f"open_order:{s['structure_id']}", "{}"))
-                  for s in pending}
-        for ra in reconcile_pending(pending, po_map, client.order_by_client_id, now,
-                                    cfg["timing"]["fill_wait_min"]):
-            journal.append("open_reconcile", ra.__dict__)
-            s = next(x for x in pending if x["structure_id"] == ra.structure_id)
-            if ra.action == "filled":
-                net = ra.net_credit if ra.net_credit is not None else s["net_credit"]
-                store.set_fills(ra.structure_id, apply_fills(s["legs_json"], ra.fills or {}),
-                                net, "open")
-                # post-fill sanity: a fill far from the intended price means the
-                # order meant something else (DEVLOG #12 would have tripped this)
-                intended = s["net_credit"]
-                if intended and abs(net - intended) > 0.30 * abs(intended):
-                    alerts.alert("WARN", "fill anomaly",
-                                 f"{s['kind']} {ra.structure_id}: intended {intended}, got {net}",
-                                 journal=journal)
-            elif ra.action == "cancel_unfilled":
-                try:
-                    client.cancel_order(ra.order_id)
-                except Exception as e:  # stays 'pending'; next tick retries
-                    journal.append("open_cancel_failed", {"structure_id": ra.structure_id,
-                                                          "error": str(e)[:300]})
-                    continue
-                store.set_status(ra.structure_id, "unfilled")
-            elif ra.action == "unfilled":
-                store.set_status(ra.structure_id, "unfilled")
+    reconcile_working()
 
     # ---- integrity + management -----------------------------------------
-    open_structs = store.open_structures()
-    ok, why = integrity_check(open_structs, client.positions() if not args.mock else [])
-    journal.append("integrity", {"ok": ok, "reason": why})
+    ok, why = check_integrity()
     if not ok:
-        journal.append("flatten_all", {"reason": why})
-        alerts.alert("CRITICAL", "integrity breach — agent halted", why, journal=journal)
-        print(f"INTEGRITY BREACH: {why} — flatten required (manual confirm in paper)", file=sys.stderr)
-        return 2
-    _alert_on_change(store, "drift", "DRIFT" in why, "WARN", "book/broker drift", why, journal)
+        # A naked short (or an unknown position that could not be adopted):
+        # no NEW risk, but the known book is still managed and marked
+        # (DEVLOG #28 — before this the tick aborted here, forever).
+        journal.append("integrity_halt", {"reason": why})
+        print(f"INTEGRITY BREACH: {why} — new risk halted (manual action required)", file=sys.stderr)
+    halt_new_risk = (not ok) or dq.mode != "full"
+    open_structs = store.open_structures()
 
     entries_today = int(store.get_counter(_today(), "entries"))
     from .engine.gates import g17_event_derisk
@@ -214,17 +325,22 @@ def cmd_tick(args) -> int:
                           derisk_lock_frac=cfg["events"].get("derisk_lock_profit_frac", 0.15),
                           minutes_to_close=mins_to_close,
                           realize_window_min=cfg["management"].get("realize_window_min", 60))
+    close_buffer_min = 5   # a close sent in the last minutes rests overnight (DEVLOG #28)
     for a in actions:
         journal.append("manage", a.__dict__)
-        if a.action == "close" and not dry:
+        if a.action == "close" and not dry and mins_to_close is not None and mins_to_close < close_buffer_min:
+            journal.append("close_deferred", {"structure_id": a.structure_id,
+                                              "reason": f"{mins_to_close:.0f}m to close"})
+        elif a.action == "close" and not dry:
             s = next(x for x in open_structs if x["structure_id"] == a.structure_id)
             legs = legs_from_json(s["legs_json"])
             st = Structure(s["structure_id"], s["kind"], s["sleeve"], legs, s["net_credit"])
             attempt = idempotency.next_attempt(store, s["structure_id"] + ":close", _today())
             coid = idempotency.client_order_id(s["structure_id"] + ":close", _today(), attempt)
-            # first try at the mid; a resubmission after an unfilled close
-            # takes the market (DEVLOG #27) — we want OUT, not a better print
-            cross = attempt >= 2
+            # first try at the mid; a resubmission after an unfilled close IN
+            # THE SAME SESSION takes the market (DEVLOG #27) — we want OUT,
+            # not a better print. Keyed by session, not by the raw counter.
+            cross = store.get_kv(f"close_missed:{s['structure_id']}", "") == _today()
             pkg = structure_close_price(legs, chain, cross=cross)
             if pkg is None:
                 journal.append("close_skipped_unquoted", {"structure_id": s["structure_id"]})
@@ -252,12 +368,20 @@ def cmd_tick(args) -> int:
                 store.set_kv(f"close_order:{s['structure_id']}", json.dumps({
                     "client_order_id": coid, "est_pnl": a.est_pnl,
                     "ts": now.isoformat(), "order_id": (res.order or {}).get("id")}))
-        elif a.action == "close" and dry:
+        elif a.action == "close" and dry and args.mock:
+            # the offline demo realizes P&L so the ablation books have exits
             store.set_status(a.structure_id, "closed", a.est_pnl)
+        elif a.action == "close" and dry:
+            journal.append("manage_dry_close", {"structure_id": a.structure_id, "est_pnl": a.est_pnl})
 
     # ---- selector + desk -------------------------------------------------
     exp_date = date.fromisoformat(expiry)
-    cand = sel.select(entries, exp_date, signals.vrp, cfg["structures"], cfg["regime"], _today())
+    if halt_new_risk:
+        journal.append("entries_disabled", {"integrity_ok": ok, "data_quality": dq.mode,
+                                            "reasons": dq.reasons})
+        cand = None
+    else:
+        cand = sel.select(entries, exp_date, signals.vrp, cfg["structures"], cfg["regime"], _today())
 
     # DEVLOG #16: second-underlying fallback. When the primary's candidate
     # fails the credit/liquidity floor (all-day NO_CANDIDATE in neutral
@@ -265,14 +389,16 @@ def cmd_tick(args) -> int:
     # score stays SPY-derived (indices are tightly correlated; stated in
     # the write-up), and every gate incl. the multi-underlying payoff grid
     # prices the combined book.
-    if cand is None:
+    if cand is None and not halt_new_risk:
         for alt in [u for u in cfg.underlyings if u != primary][:1]:
             alt_chain = client.option_chain(alt, expiry)
             if not alt_chain:
                 continue
             alt_q = client.latest_stock_quote(alt)
             alt_spot = 0.5 * (float(alt_q.get("bp") or 0) + float(alt_q.get("ap") or 0))
-            if alt_spot <= 0:
+            if not (float(alt_q.get("bp") or 0) > 0 and float(alt_q.get("ap") or 0) > 0):
+                journal.append("alt_underlying_none", {"underlying": alt, "spot": alt_spot,
+                                                       "reason": "one-sided stock quote"})
                 continue
             alt_entries = sel.parse_chain(alt_chain)
             cand = sel.select(alt_entries, exp_date, signals.vrp,
@@ -291,20 +417,45 @@ def cmd_tick(args) -> int:
                                                    "contracts": len(alt_chain)})
 
     new_entry_made = False
+    headlines = [n.get("headline", "") for n in client.news(primary)]   # fetched once per tick
     if cand is None:
-        journal.append("no_candidate", {"vrp": signals.vrp,
-                                        "reason": "selector produced nothing (credit/liquidity floor)"})
+        if not halt_new_risk:
+            journal.append("no_candidate", {"vrp": signals.vrp,
+                                            "reason": "selector produced nothing (credit/liquidity floor)"})
     else:
-        headlines = [n.get("headline", "") for n in client.news(primary)]
-        book_desc = f"{len([s for s in open_structs if s['status'] == 'open'])} open structures"
+        # the risk officer used to see "3 open structures"; give it the ledger
+        book_lines = [f"{s['kind']} x{s['qty']} {'LONG premium' if s['net_credit'] < 0 else 'SHORT premium'} "
+                      f"legs={[d['symbol'] for d in json.loads(s['legs_json'])]}"
+                      for s in open_structs if s["status"] == "open"]
+        book_desc = "; ".join(book_lines) or "flat"
         cand_desc = (f"{cand.structure.kind} {[l.contract.symbol for l in cand.structure.legs]} "
                      f"credit {cand.structure.net_credit}")
         desk = run_desk(signals, headlines, cand_desc, book_desc, cfg)
+        # DEVLOG #28: a veto is a SESSION decision, not a 15-minute sample —
+        # it flipped True/False/True in 30 minutes on identical headlines.
+        if desk.veto:
+            store.set_kv("veto_session", _today())
+        elif store.get_kv("veto_session", "") == _today():
+            desk.veto = True
+            desk.veto_reason = f"sticky for the session (earlier tick): {desk.veto_reason or 'n/a'}"
+            journal.append("desk_veto_sticky", {"reason": desk.veto_reason})
         journal.append("desk", desk.to_dict())
         store.add_meeting("tick", desk.exchanges)
         _alert_on_change(store, "llm_dark", len(desk.fallbacks) >= 4, "WARN",
                          "all four LLM roles fell back",
                          "; ".join(desk.fallbacks)[:400], journal)
+        _alert_on_change(store, "llm_partial", 0 < len(desk.fallbacks) < 4, "INFO",
+                         "some LLM roles fell back", "; ".join(desk.fallbacks)[:400], journal)
+        if desk.data_suspect:
+            # an LLM says the inputs look corrupted: recorded, and no new risk
+            journal.append("data_suspect", {"analyst": desk.regime_analyst,
+                                            "second": desk.regime_second})
+            _alert_on_change(store, "data_suspect", True, "WARN",
+                             "LLM flagged the market data as suspect", cand_desc, journal)
+            cand = None
+        else:
+            _alert_on_change(store, "data_suspect", False, "WARN", "", "", journal)
+    if cand is not None:
 
         # DEVLOG #9: dry-run structures live under status "dry_run" so a real
         # tick can supersede them — otherwise a rehearsal blocks the real entry.
@@ -427,8 +578,25 @@ def cmd_tick(args) -> int:
     has_hedge = any(s["sleeve"] == "hedge" and s["status"] in ("open", "pending", "closing")
                     for s in open_after)
     core_open = [s for s in open_after if s["sleeve"] == "core" and s["status"] == "open"]
-    if core_open and not has_hedge:
+    hedge_window_ok = (not halt_new_risk and mins_to_close is not None
+                       and mins_to_close >= cfg["timing"]["no_trade_last_min"]
+                       and (mins_from_open is None or mins_from_open >= cfg["timing"]["no_trade_first_min"]))
+    if core_open and not has_hedge and hedge_window_ok:
         h = sel.build_hedge_put(entries, exp_date, cfg["structures"]["hedge"], _today())
+        # DEVLOG #28: the hedge used to bypass every gate and resubmit an
+        # unfilled put every tick without bound. Now: session window (above),
+        # liquidity on the leg, and the same attempt cap as core entries.
+        prev_h = next((s for s in store.all_structures() if h and s["structure_id"] == h.structure_id), None)
+        h_attempts = int(float(store.get_kv(f"attempt:{h.structure_id}", "0"))) if h else 0
+        if h and prev_h is not None and prev_h["status"] == "unfilled" \
+                and h_attempts >= 1 + int(cfg["timing"]["reprice_retries"]):
+            journal.append("hedge_skipped_max_attempts", {"structure_id": h.structure_id,
+                                                          "attempts": h_attempts})
+            h = None
+        if h and not check_quote(chain.get(h.legs[0].contract.symbol) or {},
+                                 cfg["liquidity"]["max_rel_spread"]).ok:
+            journal.append("hedge_skipped_illiquid", {"symbol": h.legs[0].contract.symbol})
+            h = None
         if h:
             # DEVLOG #5: hedge is financed by Core theta — its budget scales
             # with collected core credits (30%), capped at 0.6% of equity.
@@ -439,6 +607,8 @@ def cmd_tick(args) -> int:
                          0.30 * core_credit)
             unit_cost = abs(h.net_credit) * 100
             hqty = int(budget // unit_cost) if unit_cost > 0 else 0
+            if hqty < 1 and core_credit <= 0:
+                journal.append("hedge_not_needed", {"reason": "book is net long premium; nothing to insure"})
             if hqty >= 1:
                 attempt = idempotency.next_attempt(store, h.structure_id, _today())
                 coid = idempotency.client_order_id(h.structure_id, _today(), attempt)
@@ -454,7 +624,8 @@ def cmd_tick(args) -> int:
                         h.structure_id, h.kind, "hedge", hqty,
                         json.dumps([{"symbol": h.legs[0].contract.symbol, "qty": 1,
                                      "entry_price": h.legs[0].entry_price}]),
-                        h.net_credit, h.max_loss, "open" if dry else "pending",
+                        h.net_credit, h.max_loss,
+                        "open" if args.mock else ("dry_run" if dry else "pending"),
                         order_id=(res.order or {}).get("id"), client_order_id=coid)
                     if not dry:
                         store.set_kv(f"open_order:{h.structure_id}", json.dumps({
@@ -462,21 +633,27 @@ def cmd_tick(args) -> int:
                             "order_id": (res.order or {}).get("id"), "intended": h.net_credit}))
 
     # ---- shadow marks + baseline ----------------------------------------
-    headlines = [n.get("headline", "") for n in client.news(primary)]
-    naive = shadow.baseline_naive_tick(store, chain, spot, headlines, _today())
+    naive = None
+    if dq.mode == "full":
+        naive = shadow.baseline_naive_tick(store, chain, spot, headlines, _today())
     if naive:
         journal.append("baseline_naive_entry", {"symbol": naive})
     marks = shadow.mark_all_books(store, spot_map, now, iv_map, store.realized_gains(),
-                                  broker_equity=equity, chain=chain)
+                                  broker_equity=equity, chain=chain,
+                                  quality="ok" if dq.mode == "full" else "suspect")
     journal.append("marks", marks)
 
-    journal.append("tick_end", {"entry_made": new_entry_made})
+    journal.append("tick_end", {"entry_made": new_entry_made, "mode": dq.mode})
+    store.set_kv("last_tick_ts", now.isoformat())
+    store.set_kv("last_tick_mode", dq.mode)
     print(json.dumps({"signals": signals.to_dict(), "marks": marks,
-                      "entry_made": new_entry_made}, indent=2))
+                      "entry_made": new_entry_made, "mode": dq.mode}, indent=2))
     return 0
 
 
-LOCK_TTL_MIN = 5   # a tick takes seconds; a lock older than this is a crashed holder
+# A tick takes seconds; a lock older than this is a crashed holder. Matches
+# the scheduler's ExecutionTimeLimit so a slow tick cannot be overtaken.
+LOCK_TTL_MIN = 10
 
 
 def cmd_tick_locked(args) -> int:
@@ -498,11 +675,16 @@ def cmd_tick_locked(args) -> int:
     except SystemExit:
         raise
     except Exception as e:
-        # a fresh Journal re-reads the chain head the crashed tick left behind
-        j = Journal(cfg.journal_dir)
-        j.append("tick_crash", {"error": f"{type(e).__name__}: {e}",
-                                "traceback": traceback.format_exc()[-1500:]})
-        alerts.alert("CRITICAL", "tick crashed", f"{type(e).__name__}: {e}", journal=j)
+        # alert FIRST with no journal dependency (a corrupt journal tail used
+        # to make this handler itself raise — DEVLOG #28), then journal.
+        alerts.alert("CRITICAL", "tick crashed", f"{type(e).__name__}: {e}", journal=None)
+        try:
+            # a fresh Journal re-reads the chain head the crashed tick left behind
+            Journal(cfg.journal_dir).append("tick_crash", {
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc()[-1500:]})
+        except Exception:
+            traceback.print_exc()
         traceback.print_exc()
         return 1
     finally:
