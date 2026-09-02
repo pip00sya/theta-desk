@@ -115,7 +115,12 @@ events:
   # 24h so the window covers Thursday's session before Friday-morning NFP
   # (16h started only after Thursday's close — a dead rule, DEVLOG #15).
   derisk_hours_before: 24
-  derisk_worst_case_frac: 0.025
+  # No derisk_worst_case_frac: nothing ever read it. It promised to shrink the
+  # book to 2.5% inside the window, and a key that claims a protection the
+  # code does not implement is worse than no key. What the window ACTUALLY
+  # does: refuse all new risk (gate #17) and close anything at or above
+  # derisk_lock_profit_frac. Forced liquidation at market prices before a
+  # print is a strategy change, not a config value — deliberately not added.
   derisk_lock_profit_frac: 0.15   # inside the window: close anything >= +15%
   calendar_file: events.yaml
 
