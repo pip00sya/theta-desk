@@ -152,6 +152,13 @@ def cmd_tick(args) -> int:
                 if ra.action == "closed":
                     store.set_status(ra.structure_id, "closed", ra.pnl)
                     store.set_kv(f"close_missed:{ra.structure_id}", "")
+                    # the operator's phone should learn about money, not only
+                    # about failures; not journaled (the fill already is)
+                    s = next((x for x in closing if x["structure_id"] == ra.structure_id), {})
+                    alerts.alert("INFO", "позиция закрыта",
+                                 f"{s.get('kind', '?')} {ra.structure_id[:8]}: "
+                                 f"{(ra.pnl or 0):+,.0f}$ | всего зафиксировано "
+                                 f"{store.realized_gains():+,.0f}$", journal=None)
                 elif ra.action == "cancel_revert":
                     try:
                         client.cancel_order(ra.order_id)
@@ -189,6 +196,11 @@ def cmd_tick(args) -> int:
                         alerts.alert("WARN", "fill anomaly",
                                      f"{s['kind']} {ra.structure_id}: intended {intended}, got {net}",
                                      journal=journal)
+                    side = "продали премию" if net > 0 else "купили премию"
+                    alerts.alert("INFO", "позиция открыта",
+                                 f"{s['kind']} x{s['qty']}: {side} за "
+                                 f"{abs(net) * 100 * s['qty']:,.0f}$, риск до "
+                                 f"{s['max_loss']:,.0f}$", journal=None)
                 elif ra.action == "cancel_unfilled":
                     try:
                         client.cancel_order(ra.order_id)
