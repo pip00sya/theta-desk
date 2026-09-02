@@ -12,3 +12,4 @@ data/alerts.log
 !data/snapshots/
 data/tick.log
 submission/_video/
+data/notes/*.digest

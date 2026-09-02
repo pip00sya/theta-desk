@@ -36,5 +36,10 @@ if ($utc.Hour -eq 20 -and $utc.Minute -ge 5) {
   if (-not (Test-Path "$repo\data\notes\$stamp.md")) {
     python "$repo\tools\daily_note.py" 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
   }
+  # one plain-language summary per session to Telegram (money, not just alarms)
+  if (-not (Test-Path "$repo\data\notes\$stamp.digest")) {
+    python "$repo\tools\digest.py" 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
+    New-Item -ItemType File "$repo\data\notes\$stamp.digest" | Out-Null
+  }
 }
 exit $rc
