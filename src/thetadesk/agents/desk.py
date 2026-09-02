@@ -90,18 +90,19 @@ class DeskView:
     exchanges: list[dict] = field(default_factory=list)
     fallbacks: list[str] = field(default_factory=list)
     data_suspect: bool = False   # an LLM flagged the raw inputs as corrupted (DEVLOG #28)
+    disagreement_mult: float = 0.5   # config sizing.disagreement_mult (gate #16)
 
     @property
     def size_mult(self) -> float:
         m = 1.0
         if self.disagreement:
-            m *= 0.5
+            m *= self.disagreement_mult
         if self.objection_severity == "high":
-            m *= 0.5
+            m *= self.disagreement_mult
         if self.data_suspect:
             # DEVLOG #29: an unconfirmed data doubt halves size; only the
             # deterministic gate can stop the trade outright
-            m *= 0.5
+            m *= self.disagreement_mult
         return m
 
     def to_dict(self) -> dict:
@@ -193,4 +194,5 @@ def run_desk(signals: MarketSignals, headlines: list[str], candidate_desc: str,
         exchanges=exchanges,
         fallbacks=fallbacks,
         data_suspect=data_suspect,
+        disagreement_mult=float(cfg.raw.get("sizing", {}).get("disagreement_mult", 0.5)),
     )

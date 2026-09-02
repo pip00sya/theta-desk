@@ -543,7 +543,8 @@ def cmd_tick(args) -> int:
                                             "reasons": dq.reasons})
         cand = None
     else:
-        cand = sel.select(entries, exp_date, signals.vrp, cfg["structures"], cfg["regime"], _today())
+        cand = sel.select(entries, exp_date, signals.vrp, cfg["structures"], cfg["regime"], _today(),
+                              neutral_mult=float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5)))
 
     # DEVLOG #16: second-underlying fallback. When the primary's candidate
     # fails the credit/liquidity floor (all-day NO_CANDIDATE in neutral
@@ -564,7 +565,8 @@ def cmd_tick(args) -> int:
                 continue
             alt_entries = sel.parse_chain(alt_chain)
             cand = sel.select(alt_entries, exp_date, signals.vrp,
-                              cfg["structures"], cfg["regime"], _today())
+                              cfg["structures"], cfg["regime"], _today(),
+                              neutral_mult=float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5)))
             if cand is not None:
                 chain = {**chain, **alt_chain}
                 iv_map.update({sym: (s.get("impliedVolatility") or 0.20)

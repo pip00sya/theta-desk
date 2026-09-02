@@ -103,9 +103,12 @@ management:
   regime_exit_long_premium: true  # a core long-premium structure is closed in a 'rich' regime
 
 sizing:
-  disagreement_mult: 0.5        # gate #16
-  neutral_regime_mult: 0.5
-  event_mode_mult: 0.0          # no new risk inside event window
+  # DEVLOG #31: these were documentation of hard-coded 0.5s; now they are read.
+  disagreement_mult: 0.5        # gate #16 — agents/desk.py DeskView.size_mult (also
+                                # applied for a high-severity objection and data_suspect)
+  neutral_regime_mult: 0.5      # engine/selector.py neutral branch
+  # No event_mode_mult: inside the event window gate #17 refuses new risk
+  # outright (a multiplier of 0.0 was never read by anything).
 
 events:
   # Gate #17 (RED-TEAM P2): de-risk before high-class macro releases.

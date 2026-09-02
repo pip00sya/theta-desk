@@ -174,3 +174,29 @@ def test_expiry_rolls_after_the_configured_date_and_book_legs_stay_marked(desk, 
     assert opened, "the roll target should produce a candidate on the mock chain"
     legs = opened[0]["data"]["payload"]["legs"]
     assert all(l["symbol"][3:9] == "261016" for l in legs)          # new entries target Oct 16
+
+
+# ---- sizing keys are read, not decorative (audit F30) -----------------------
+
+def test_sizing_keys_drive_the_multipliers():
+    from thetadesk.agents.desk import DeskView
+    v = DeskView(regime_analyst="rich", regime_second="neutral", disagreement=True, veto=False,
+                 veto_reason="", objection="", objection_severity="low", disagreement_mult=0.25)
+    assert v.size_mult == 0.25
+    v2 = DeskView(regime_analyst="rich", regime_second="rich", disagreement=False, veto=False,
+                  veto_reason="", objection="", objection_severity="high", disagreement_mult=0.25)
+    assert v2.size_mult == 0.25
+    import inspect
+    from thetadesk.engine import selector as sel
+    assert "neutral_mult" in inspect.signature(sel.select).parameters
+
+
+def test_regime_exit_ignores_zero_credit_rows():
+    """A row that neither paid nor received (a mleg fill reported flat) is not
+    long premium; the regime exit must not close it as one."""
+    from test_devlog28 import _put, _chain, MGMT, NOW
+    from thetadesk.manage.positions import review_book
+    s = _put(sid="z")
+    s["net_credit"] = 0.0
+    [a] = review_book([s], _chain(3.66), MGMT, NOW, 0, "2026-09-18", regime="rich", peaks={})
+    assert "regime exit" not in a.reason

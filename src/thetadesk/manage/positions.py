@@ -148,7 +148,9 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
                 actions.append(ManageAction(s["structure_id"], "close",
                                             f"debit profit target: +{frac:.0%} of cost", mtm))
                 continue
-            if regime_exit and regime == "rich" and s.get("sleeve", "core") == "core":
+            # credit < 0 strictly: a zero-credit row (nothing paid, nothing
+            # received) is not long premium and has nothing to exit
+            if regime_exit and regime == "rich" and credit < 0 and s.get("sleeve", "core") == "core":
                 actions.append(ManageAction(s["structure_id"], "close",
                                             f"regime exit: long premium held in a rich regime "
                                             f"({frac:+.0%} of cost)", mtm))

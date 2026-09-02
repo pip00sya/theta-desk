@@ -141,7 +141,8 @@ def build_cheap_vol_put(entries: list[ChainEntry], expiry: date, day: str) -> St
 
 
 def select(entries: list[ChainEntry], expiry: date, score: float,
-           cfg_structures: dict, cfg_regime: dict, day: str) -> Candidate | None:
+           cfg_structures: dict, cfg_regime: dict, day: str,
+           neutral_mult: float = 0.5) -> Candidate | None:
     rich = cfg_regime["vrp_rich_threshold"]
     cheap = cfg_regime["vrp_cheap_threshold"]
     if score >= rich:
@@ -156,8 +157,8 @@ def select(entries: list[ChainEntry], expiry: date, score: float,
                               min_credit_frac=c.get("neutral_min_credit_frac_of_width",
                                                     c["min_credit_frac_of_width"]))
         if s:
-            return Candidate(s, "neutral", 0.5,
-                             f"VRP score {score:.2f} neutral: wider condor, half size")
+            return Candidate(s, "neutral", neutral_mult,
+                             f"VRP score {score:.2f} neutral: wider condor, size x{neutral_mult:g}")
         return None
     s = build_cheap_vol_put(entries, expiry, day)
     if s:
