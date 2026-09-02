@@ -361,12 +361,25 @@ def cmd_tick(args) -> int:
                                   cfg["events"]["derisk_hours_before"]).passed
     if derisk:
         journal.append("derisk_mode", {"reason": "high-class event inside window"})
-    actions = review_book([s for s in open_structs if s["status"] == "open"], chain,
+    # DEVLOG #30: the manager knows the regime (only from a clean tick — a
+    # mark-only tick must never close positions on a suspect signal) and
+    # remembers each structure's best mark for the trailing stop.
+    R = cfg["regime"]
+    regime = ("rich" if signals.vrp >= R["vrp_rich_threshold"]
+              else "cheap" if signals.vrp < R["vrp_cheap_threshold"] else "neutral")
+    live_open = [s for s in open_structs if s["status"] == "open"]
+    peaks = {s["structure_id"]: float(store.get_kv(f"peak_frac:{s['structure_id']}", "0") or 0)
+             for s in live_open}
+    actions = review_book(live_open, chain,
                           cfg["management"], now, entries_today, cfg.min_expiry,
                           derisk_mode=derisk,
                           derisk_lock_frac=cfg["events"].get("derisk_lock_profit_frac", 0.15),
                           minutes_to_close=mins_to_close,
-                          realize_window_min=cfg["management"].get("realize_window_min", 60))
+                          realize_window_min=cfg["management"].get("realize_window_min", 60),
+                          regime=regime if dq.mode == "full" else None,
+                          peaks=peaks)
+    for sid, pk in peaks.items():
+        store.set_kv(f"peak_frac:{sid}", f"{pk:.4f}")
     close_buffer_min = 5   # a close sent in the last minutes rests overnight (DEVLOG #28)
     for a in actions:
         journal.append("manage", a.__dict__)

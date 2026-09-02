@@ -73,7 +73,9 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
                 min_expiry: str, derisk_mode: bool = False,
                 derisk_lock_frac: float = 0.15,
                 minutes_to_close: float | None = None,
-                realize_window_min: float | None = None) -> list[ManageAction]:
+                realize_window_min: float | None = None,
+                regime: str | None = None,
+                peaks: dict[str, float] | None = None) -> list[ManageAction]:
     """DEVLOG #15: exits exist for BOTH directions of premium.
       credit structures: 35% profit target, 2x credit stop
       debit structures:  +60% of debit target (vol spikes mean-revert),
@@ -82,9 +84,22 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
     DEVLOG #24: the idle-day realization policy runs only inside the last
     realize_window_min of the session (None = anytime, for offline callers):
     at the first tick of the day entries_today is ALWAYS zero, so 'idle day'
-    was a prophecy, not a fact, and the rule fired at the open."""
+    was a prophecy, not a fact, and the rule fired at the open.
+    DEVLOG #30: two more exits for CORE structures.
+      regime exit   — a long-premium structure is closed when the regime is
+                      'rich': the desk sells premium in rich vol, it does not
+                      hold a directional put bought under a signal that has
+                      since flipped (the Sep 2 put gave back +$111 of paper
+                      profit while the book earned +$1.49/day of theta).
+      trailing stop — `peaks` (structure_id -> best frac seen, persisted by
+                      the caller) arms at trail_arm_frac and closes when the
+                      structure has given back trail_giveback_frac of its peak.
+    """
     actions: list[ManageAction] = []
     realize_candidates: list[tuple[float, dict, float]] = []
+    trail_arm = float(cfg_mgmt.get("trail_arm_frac", 0.20))
+    trail_give = float(cfg_mgmt.get("trail_giveback_frac", 0.40))
+    regime_exit = bool(cfg_mgmt.get("regime_exit_long_premium", True))
 
     for s in open_structures:
         if s["status"] != "open":
@@ -132,6 +147,22 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
             if frac >= target:
                 actions.append(ManageAction(s["structure_id"], "close",
                                             f"debit profit target: +{frac:.0%} of cost", mtm))
+                continue
+            if regime_exit and regime == "rich" and s.get("sleeve", "core") == "core":
+                actions.append(ManageAction(s["structure_id"], "close",
+                                            f"regime exit: long premium held in a rich regime "
+                                            f"({frac:+.0%} of cost)", mtm))
+                continue
+
+        # trailing stop (DEVLOG #30): arm once the structure has shown a real
+        # gain, then never let it give back more than trail_give of that peak
+        if peaks is not None:
+            peak = max(float(peaks.get(s["structure_id"], 0.0)), frac)
+            peaks[s["structure_id"]] = peak
+            if peak >= trail_arm and frac <= peak * (1.0 - trail_give):
+                actions.append(ManageAction(s["structure_id"], "close",
+                                            f"trailing stop: peaked at +{peak:.0%}, now +{frac:.0%} "
+                                            f"(gave back {1 - frac / peak:.0%})", mtm))
                 continue
 
         if derisk_mode and frac >= derisk_lock_frac:

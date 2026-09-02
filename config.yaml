@@ -80,6 +80,10 @@ management:
   time_stop_dte: 7              # gate #11 (does not apply to legs behind min_expiry horizon)
   min_entry_dte: 10             # gate #3 (DEVLOG #26): no entries the time stop would
                                 # close next tick — Sep 18 legs stop being entered Sep 8
+  # DEVLOG #30: never hand a gain back, never hold long premium in rich vol.
+  trail_arm_frac: 0.20          # trailing stop arms once a structure has shown +20%
+  trail_giveback_frac: 0.40     # ...and closes when 40% of that peak has been given back
+  regime_exit_long_premium: true  # a core long-premium structure is closed in a 'rich' regime
 
 sizing:
   disagreement_mult: 0.5        # gate #16

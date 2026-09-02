@@ -143,8 +143,8 @@ MGMT = {"profit_target_frac": 0.35, "debit_profit_target_frac": 0.60, "realize_m
         "structure_stop_credit_mult": 2.0, "time_stop_dte": 7}
 
 
-def _put(qty=1, sleeve="core"):
-    return {"structure_id": "s1", "kind": "cheap_vol_put", "sleeve": sleeve, "qty": qty,
+def _put(qty=1, sleeve="core", sid="s1"):
+    return {"structure_id": sid, "kind": "cheap_vol_put", "sleeve": sleeve, "qty": qty,
             "legs_json": json.dumps([{"symbol": "SPY260918P00751000", "qty": 1, "entry_price": 3.66}]),
             "net_credit": -3.66, "status": "open"}
 
@@ -360,3 +360,61 @@ def test_unfilled_entry_gives_back_the_daily_risk_budget(scratch, monkeypatch):
     # little differently, but the cancelled one is no longer charged
     assert after < charged * 1.5, (
         f"budget charged {after} while only one order (~{charged}) is working")
+
+
+# ---- DEVLOG #30: never hand a gain back; no long premium in rich vol -------
+
+def _condor_struct(sid="c1", credit=1.89):
+    legs = [{"symbol": "SPY260918P00741000", "qty": -1, "entry_price": 2.41},
+            {"symbol": "SPY260918P00731000", "qty": 1, "entry_price": 1.56},
+            {"symbol": "SPY260918C00782000", "qty": -1, "entry_price": 1.38},
+            {"symbol": "SPY260918C00792000", "qty": 1, "entry_price": 0.34}]
+    return {"structure_id": sid, "kind": "iron_condor", "sleeve": "core", "qty": 1,
+            "legs_json": json.dumps(legs), "net_credit": credit, "status": "open"}
+
+
+def _condor_chain(mult):
+    """mult < 1 -> option prices fell (good for the short premium)."""
+    mids = {"SPY260918P00741000": 2.41, "SPY260918P00731000": 1.56,
+            "SPY260918C00782000": 1.38, "SPY260918C00792000": 0.34}
+    return {s: {"latestQuote": {"bp": round(m * mult - 0.01, 2), "ap": round(m * mult + 0.01, 2)}}
+            for s, m in mids.items()}
+
+
+def test_long_premium_is_closed_when_the_regime_is_rich():
+    """The Sep 2 put: bought under a 'cheap' read that the stale RV produced,
+    held through a rich regime, gave back +$111 while eating the condors' theta."""
+    [a] = review_book([_put()], _chain(3.66 * 1.02), MGMT, NOW, 1, "2026-09-18", regime="rich")
+    assert a.action == "close" and "regime exit" in a.reason
+    [a] = review_book([_put()], _chain(3.66 * 1.02), MGMT, NOW, 1, "2026-09-18", regime="cheap")
+    assert a.action == "hold"
+    [a] = review_book([_put()], _chain(3.66 * 1.02), MGMT, NOW, 1, "2026-09-18", regime=None)
+    assert a.action == "hold"                                  # unknown regime never closes
+    [a] = review_book([_put(sleeve="hedge")], _chain(3.66 * 1.02), MGMT, NOW, 1, "2026-09-18",
+                      regime="rich")
+    assert a.action == "hold"                                  # the hedge is not a trade
+
+
+def test_trailing_stop_locks_a_gain_that_is_being_given_back():
+    peaks = {}
+    # +30% of cost: arms the trail (>= 20%), holds
+    [a] = review_book([_put()], _chain(3.66 * 1.30), MGMT, NOW, 1, "2026-09-18", peaks=peaks)
+    assert a.action == "hold" and abs(peaks["s1"] - 0.30) < 0.02
+    # slips to +22%: gave back ~27% of the peak, still inside the 40% allowance
+    [a] = review_book([_put()], _chain(3.66 * 1.22), MGMT, NOW, 1, "2026-09-18", peaks=peaks)
+    assert a.action == "hold"
+    # slips to +10%: gave back two thirds of the peak -> close, gain kept
+    [a] = review_book([_put()], _chain(3.66 * 1.10), MGMT, NOW, 1, "2026-09-18", peaks=peaks)
+    assert a.action == "close" and "trailing stop" in a.reason and a.est_pnl > 0
+    # a structure that never showed a gain is never trailed
+    fresh = {}
+    [a] = review_book([_put(sid="s2")], _chain(3.66 * 0.90), MGMT, NOW, 1, "2026-09-18", peaks=fresh)
+    assert a.action == "hold" and fresh["s2"] == 0.0
+
+
+def test_trailing_stop_applies_to_condors_too():
+    peaks = {}
+    [a] = review_book([_condor_struct()], _condor_chain(0.75), MGMT, NOW, 1, "2026-09-18", peaks=peaks)
+    assert a.action == "hold" and peaks["c1"] >= 0.20        # +25% of max profit, armed
+    [a] = review_book([_condor_struct()], _condor_chain(0.95), MGMT, NOW, 1, "2026-09-18", peaks=peaks)
+    assert a.action == "close" and "trailing stop" in a.reason
