@@ -27,8 +27,12 @@ against the day's candidate. Disagreement between the two regime reads
 halves position size (the prompts define rich/cheap explicitly so the
 signal is information, not vocabulary); a veto stops new short-premium risk
 for the rest of the session; a high-severity objection halves size again;
-either analyst can flag the market data itself as suspect, which blocks new
-risk for that tick. No model output can loosen a deterministic gate. Empty,
+either analyst can flag the market data itself as suspect, which halves size —
+and blocks the tick only when BOTH readers agree AND the deterministic
+data-quality gate independently found a defect. That asymmetry was bought
+live: on 2026-09-02 one analyst called a correct SPY print "outside
+historical norms" (a training-cutoff artifact, not a corrupt feed) and would
+have shut the desk for the day. LLMs may tighten; only code may stop. No model output can loosen a deterministic gate. Empty,
 truncated or unparseable replies are journaled as fallbacks and default to
 the deterministic core; a backup Featherless key rotates in automatically on
 quota errors. Claude Code with Alpaca's MCP server was the research and build
@@ -37,7 +41,7 @@ the CLI.
 
 ## 2. Risk gates
 
-Nineteen deterministic rules, all pure Python: twelve entry gates
+Eighteen deterministic rules, all pure Python: twelve entry gates
 orchestrated in `engine/gates.py` (unit- and property-tested, incl. an
 earned-scaled cap on the long-premium sleeve and a feed-liveness gate on the
 ATM quote strip), plus the paper-only guard, idempotent order ids, the tick
@@ -50,12 +54,16 @@ branch applies to legs that outlive the horizon); if the worst grid P&L
 breaches the budget (6% of equity, extendable to 8% only by realized gains —
 the agent earns the right to take risk), the order is never sent. This is a client-side implementation of the same worst-case principle
 as Alpaca's universal spread rule for options margin. Other gates: paper-only
-fail-closed, SPY/QQQ/IWM universe, every leg expires on/after Sep 18 (nothing
+fail-closed, SPY/QQQ/IWM universe searched least-exposed name first so the
+book does not stack one bet at double size, every leg expires on/after Sep 18 (nothing
 expires during judging), defined-risk only, two-sided quotes, ≤8% relative
 spread, ≤1.25% equity per structure, ≤2.5% new risk/day, session-edge
 windows, macro-event de-risk (NFP lands the morning of the deadline — the
 book enters that Friday light by rule), 35% profit target with a daily
-realization policy, 2× credit structure stop, drawdown-halt (never
+realization policy, 2× credit structure stop, +60% target on long premium,
+a trailing stop that arms at +20% and closes on a 40% giveback of the peak,
+a regime exit that refuses to hold long premium once volatility is rich,
+drawdown-halt (never
 panic-flatten; full liquidation only on a book-integrity breach), and
 hash-verified idempotent order ids.
 
