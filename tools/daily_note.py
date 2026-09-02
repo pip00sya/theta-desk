@@ -45,6 +45,23 @@ def main() -> int:
         print("no journal entries today — skipping note")
         return 0
 
+    notes_dir = cfg.db_path.parent / "notes"      # follows THETADESK_DATA_DIR
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    path = notes_dir / f"{today}.md"
+    # DEVLOG #28: never overwrite a real note (an empty LLM reply once wiped one)
+    if path.exists() and len(path.read_text(encoding="utf-8").strip()) > 60:
+        print(f"note already exists, not overwriting: {path}")
+        return 0
+
+    # The narrator sees the STRUCTURE LEDGER (direction, sign of premium,
+    # realized P&L), not raw order payloads — the 20:15 note on Sep 1 invented
+    # "short-premium structures" the book never held. Marks are omitted: a
+    # corrupted mark would be narrated as a fact.
+    ledger = []
+    for s in store.all_structures():
+        side = "LONG premium (debit)" if s["net_credit"] < 0 else "SHORT premium (credit)"
+        pnl = f" closed_pnl=${s['closed_pnl']:.0f}" if s.get("closed_pnl") is not None else ""
+        ledger.append(f"{s['kind']} x{s['qty']} {side} status={s['status']}{pnl}")
     compact = []
     for e in entries:
         k, d = e["kind"], e["data"]
@@ -56,31 +73,28 @@ def main() -> int:
                            f"veto={d['veto']} mult={d['size_mult']}")
         elif k in ("order_open", "order_close", "order_hedge"):
             compact.append(f"{k} {json.dumps(d.get('payload', {}).get('symbol') or d, default=str)[:90]}")
-        elif k in ("entry_refused", "desk_veto", "derisk_mode", "size_zero"):
+        elif k in ("entry_refused", "desk_veto", "derisk_mode", "size_zero", "data_quality",
+                   "market_closed", "alert"):
             compact.append(f"{k}: {json.dumps(d, default=str)[:110]}")
         elif k == "manage" and d.get("action") == "close":
             compact.append(f"close {d['structure_id'][:8]}: {d['reason']} pnl~{d['est_pnl']:.0f}")
-        elif k == "marks":
-            compact.append(f"marks {json.dumps(d)}")
     digest = "\n".join(compact[-70:])
     realized = store.realized_gains()
 
     L = cfg["llm"]
     ex = llm.call("daily_note", L["analyst_provider"], L["analyst_model"],
                   SYSTEM, f"Date: {today}\nRealized P&L to date: ${realized:.2f}\n"
-                          f"Day log:\n{digest}", timeout_s=60, max_tokens=500)
-    if not ex.ok:
-        print("note generation failed:", ex.fallback_reason)
+                          f"Structure ledger:\n- " + "\n- ".join(ledger or ["(none)"]) +
+                          f"\nDay log:\n{digest}", timeout_s=90, max_tokens=2500)
+    if not ex.ok or not ex.response_text.strip():
+        print("note generation failed:", ex.fallback_reason or "empty reply")
         return 1
 
-    notes_dir = ROOT / "data" / "notes"
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    path = notes_dir / f"{today}.md"
     path.write_text(f"# THETA DESK — daily note {today}\n\n{ex.response_text}\n",
                     encoding="utf-8")
     store.add_meeting("daily_note", [ex.to_dict()])
     print(f"note saved: {path}")
-    print(ex.response_text[:400])
+    print(ex.response_text[:400].encode("ascii", "replace").decode())
     return 0
 
 

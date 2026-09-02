@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
@@ -26,6 +27,7 @@ cfg = cfgmod.load()
 # Cloud deploy fallback: a committed snapshot of the DB lives next to the app
 # (refreshed by `make snapshot-dashboard` before each push).
 db_path = cfg.db_path if cfg.db_path.exists() else Path(__file__).parent / "state.sqlite"
+is_snapshot = db_path != cfg.db_path
 store = Store(db_path)
 journal = Journal(cfg.journal_dir)
 entries = journal.read_all()
@@ -38,8 +40,26 @@ def note(text: str):
         st.info("JUDGE NOTE - " + text)
 
 
+def _quality(m: dict) -> str:
+    try:
+        return (json.loads(m.get("detail_json") or "{}").get("quality") or "ok")
+    except ValueError:
+        return "ok"
+
+
 st.title("THETA DESK — autonomous options desk on Alpaca (paper)")
 st.caption("Paper trading simulation only. Hypothetical results. Not investment advice.")
+
+# ---- liveness (DEVLOG #28) -------------------------------------------------
+last_ts = store.get_kv("last_tick_ts", "")
+last_mode = store.get_kv("last_tick_mode", "")
+if last_ts:
+    age_min = (datetime.now(timezone.utc) - datetime.fromisoformat(last_ts)).total_seconds() / 60
+    line = f"Last tick: {last_ts[:16]}Z ({age_min:.0f} min ago), mode: {last_mode or 'n/a'}"
+    (st.success if age_min < 30 else st.warning)(line + " — scheduler window 13:30–20:00 UTC, Mon–Fri")
+if is_snapshot:
+    st.caption(f"Rendering the committed data snapshot (data as of the last publish). "
+               f"Journal entries: {len(entries)}.")
 
 ok, msg = journal.verify_chain()
 c1, c2, c3, c4 = st.columns(4)
@@ -48,31 +68,52 @@ c2.metric("Hash chain", "intact" if ok else "BROKEN")
 c3.metric("Structures", len(store.all_structures()))
 c4.metric("Realized P&L", f"${store.realized_gains():,.2f}")
 note("The journal is hash-chained: every decision line carries the SHA-256 of the "
-     "previous one. `python -m thetadesk.main verify-journal` re-verifies it.")
+     "previous one. `python -m thetadesk.main verify-journal` re-verifies it against "
+     "in-place edits; the committed git history is the external anchor.")
 
-tab_eq, tab_dec, tab_gates, tab_book, tab_desk = st.tabs(
-    ["Equity & ablation", "Decision feed", "Gates", "Book", "Desk meetings"])
+tab_eq, tab_dec, tab_gates, tab_book, tab_desk, tab_ref = st.tabs(
+    ["Equity & ablation", "Decision feed", "Gates", "Book", "Desk meetings", "Refusals"])
 
 with tab_eq:
-    note("Four curves, same inputs: the real book, the same strategy without risk "
-         "gates, without the hedge sleeve, and a naive news-driven baseline. "
-         "This is the live ablation — the dollar value of each design decision.")
+    note("Curves on identical inputs: the real book (broker equity), the same strategy "
+         "without risk gates (unmanaged, marked at mid) and a naive news-driven baseline. "
+         "Shadow books do not take profits, so this is a bound, not a like-for-like P&L. "
+         "The hedge sleeve has not fired yet (the book has been long premium), so the "
+         "'no hedge' curve is hidden while it is identical to the real one.")
     import pandas as pd
+    all_marks = {b: store.marks(b) for b in ("real", "shadow_nogates", "shadow_nohedge", "baseline_naive")}
+    quarantined = sum(1 for ms in all_marks.values() for m in ms if _quality(m) != "ok")
     frames = {}
-    for book in ("real", "shadow_nogates", "shadow_nohedge", "baseline_naive"):
-        marks = store.marks(book)
-        if marks:
-            frames[book] = pd.Series(
-                [m["unrealized"] + (m["realized"] or 0) for m in marks],
-                index=pd.to_datetime([m["ts"] for m in marks]), name=book)
+    for book, marks in all_marks.items():
+        good = [m for m in marks if _quality(m) == "ok"]
+        if not good:
+            continue
+        idx = pd.to_datetime([m["ts"] for m in good])
+        if book == "real":
+            eq = [m["equity"] for m in good]
+            if all(e is not None for e in eq):
+                frames["real (broker equity − $100k)"] = pd.Series([e - 100_000 for e in eq], index=idx)
+            else:
+                frames["real (model)"] = pd.Series([m["unrealized"] + (m["realized"] or 0) for m in good], index=idx)
+        else:
+            frames[book] = pd.Series([m["unrealized"] + (m["realized"] or 0) for m in good], index=idx)
+    # hide the hedge ablation while it is identical to the real model book
+    if "shadow_nohedge" in frames and all_marks.get("real"):
+        real_model = [m["unrealized"] + (m["realized"] or 0) for m in all_marks["real"] if _quality(m) == "ok"]
+        if real_model and list(frames["shadow_nohedge"].values) == real_model:
+            frames.pop("shadow_nohedge")
     if frames:
-        df = pd.concat(frames.values(), axis=1).ffill()
+        df = pd.concat(frames.values(), axis=1, keys=frames.keys()).ffill()
         st.line_chart(df)
         last = df.iloc[-1]
         cols = st.columns(len(frames))
         for col, (name, val) in zip(cols, last.items()):
             col.metric(name, f"${val:,.0f}")
-        real_marks = store.marks("real")
+        if quarantined:
+            st.caption(f"{quarantined} mark rows quarantined (data-quality gate, DEVLOG #28): "
+                       "2026-09-01 20:15/20:30 UTC priced off a one-sided after-hours quote. "
+                       "They remain in the store and the journal; they are not plotted.")
+        real_marks = [m for m in all_marks["real"] if _quality(m) == "ok"]
         with_greeks = [m for m in real_marks if m["theta"] or m["delta"] or m["vega"]]
         if with_greeks:
             st.subheader("Book greeks (dollar terms)")
@@ -99,7 +140,10 @@ with tab_dec:
                  "order_open": "ORDER OPEN", "order_close": "ORDER CLOSE",
                  "order_hedge": "HEDGE", "manage": "manage",
                  "entry_skipped_duplicate": "duplicate skip",
-                 "desk_veto": "DESK VETO", "marks": "marks"}.get(kind, kind)
+                 "desk_veto": "DESK VETO", "marks": "marks",
+                 "data_quality": "DATA QUALITY", "market_closed": "market closed",
+                 "entries_disabled": "entries disabled", "adopted_position": "ADOPTED POSITION",
+                 "alert": "ALERT"}.get(kind, kind)
         with st.expander(f"{e['ts'][11:19]}  {label}"):
             st.json(e["data"])
 
@@ -109,8 +153,8 @@ with tab_gates:
     st.metric("Gate evaluations", len(gates))
     st.metric("Entries refused", len(refused))
     note("Gate g8 reprices the ENTIRE book over a +/-20% price grid at the "
-         "judging horizon under base and stressed vol — a client-side "
-         "implementation of Alpaca's universal spread rule.")
+         "judging horizon (the Sep 18 expiry, so at intrinsic value) — a "
+         "client-side implementation of Alpaca's universal spread rule.")
     for g in reversed(gates[-20:]):
         ff = next((r for r in g["results"] if not r["passed"]), None)
         verdict = "PASS" if g["passed"] else f"REFUSED at {ff['gate']}: {ff['reason']}"
@@ -140,3 +184,23 @@ with tab_desk:
                             + ("ok" if ex["ok"] else f"FALLBACK: {ex['fallback_reason']}"))
                 if ex["response_text"]:
                     st.code(ex["response_text"][:800])
+
+with tab_ref:
+    note("Every time the agent said no, and why. no_candidate = the selector found "
+         "nothing that cleared the credit/liquidity floor; desk_veto = the news vetoer "
+         "blocked short premium; entry_refused = a deterministic gate; "
+         "entries_disabled = the data-quality gate or an integrity halt.")
+    kinds = ("no_candidate", "desk_veto", "desk_veto_waived", "entry_refused", "size_zero",
+             "derisk_mode", "entries_disabled", "data_quality", "data_suspect", "close_deferred")
+    rows = [(e["ts"][:16], e["kind"], json.dumps(e["data"], ensure_ascii=False)[:160])
+            for e in entries if e["kind"] in kinds]
+    counts = {}
+    for _, k, _ in rows:
+        counts[k] = counts.get(k, 0) + 1
+    cols = st.columns(max(1, min(len(counts), 5)))
+    for col, (k, v) in zip(cols * 3, counts.items()):
+        col.metric(k, v)
+    import pandas as pd
+    if rows:
+        st.dataframe(pd.DataFrame(reversed(rows), columns=["ts", "kind", "detail"]),
+                     use_container_width=True, height=400)

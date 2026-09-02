@@ -48,13 +48,26 @@ def compute_claims() -> dict[str, str]:
                    if g.get("worst_case") and g["worst_case"].get("pnl") is not None]
 
     fallbacks = []
-    for e in entries:
-        if e["kind"] == "desk":
-            fallbacks.extend(e["data"].get("fallbacks", []))
+    desks = [e["data"] for e in entries if e["kind"] == "desk"]
+    for d in desks:
+        fallbacks.extend(d.get("fallbacks", []))
+    # DEVLOG #28: a meeting where every role fell back is "LLM-dark" — the
+    # deterministic core decided alone; say how many, not just a raw count
+    llm_dark = sum(1 for d in desks
+                   if d.get("exchanges") and all(not x.get("ok") for x in d["exchanges"]))
     # DEVLOG #20: the broker's fills are the ground truth; tools/broker_check.py
     # journals its comparison so it can be quoted here without credentials
     checks = [e["data"] for e in entries if e["kind"] == "broker_check"]
     broker_realized = f"{checks[-1]['broker_realized']:.2f}" if checks else "not checked"
+    cancelled = sum(1 for e in entries
+                    if e["kind"] in ("close_reconcile", "open_reconcile")
+                    and e["data"].get("action") in ("cancel_revert", "cancel_unfilled"))
+    quarantined = store.conn.execute(
+        "SELECT COUNT(*) FROM marks WHERE detail_json LIKE '%\"quality\": \"invalid\"%'"
+        " OR detail_json LIKE '%\"quality\": \"suspect\"%'").fetchone()[0]
+    tests_dir = Path(__file__).resolve().parents[1] / "tests"
+    n_tests = sum(len(re.findall(r"^def test_", p.read_text(encoding="utf-8"), re.M))
+                  for p in tests_dir.glob("test_*.py"))
 
     return {
         "journal_entries": str(len(entries)),
@@ -71,7 +84,12 @@ def compute_claims() -> dict[str, str]:
         "order_transports_used": ",".join(transports) or "none",
         "orders_submitted_live": str(len(orders_live)),
         "orders_rejected_at_submit": str(orders_rejected),
+        "orders_cancelled_unfilled": str(cancelled),
+        "desk_meetings_total": str(len(desks)),
+        "desk_meetings_llm_dark": str(llm_dark),
         "llm_fallbacks_recorded": str(len(fallbacks)),
+        "marks_quarantined": str(quarantined),
+        "test_functions": str(n_tests),
     }
 
 

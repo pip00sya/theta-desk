@@ -1,22 +1,7 @@
-$ python -m thetadesk.main verify-journal
-OK: chain intact (179 entries)
+# generated 2026-09-02T12:04:39Z at commit 99dd637 by: make verify
+OK: chain intact (370 entries)
 
-$ python tools/replay.py
+replay: 39/39 snapshots reproduce, 0 divergence(s)
+CLAIM  test_functions                   101
 
-replay: 19/19 snapshots reproduce, 0 divergence(s)
-
-$ python tools/reconcile.py
-CLAIM  journal_entries                  179
-CLAIM  journal_chain                    intact
-CLAIM  ticks                            19
-CLAIM  gate_evaluations                 7
-CLAIM  entries_refused_by_gates         2
-CLAIM  structures_total                 4
-CLAIM  structures_open                  4
-CLAIM  structures_closed                0
-CLAIM  realized_pnl_usd                 0.00
-CLAIM  book_worst_case_peak_usd         1510
-CLAIM  order_transports_used            cli,dry_run,rest
-CLAIM  llm_fallbacks_recorded           32
-
-12/12 claims reproduced - 0 mismatches - no credentials required
+20/20 claims reproduced - 0 mismatches - no credentials required

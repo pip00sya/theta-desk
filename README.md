@@ -6,10 +6,10 @@
 Team Qwertys — [Alpaca AI Trading Agents Hackathon](https://lablab.ai/ai-hackathons/alpaca-ai-trading-agents-hackathon) (lablab.ai), Aug 28 – Sep 4, 2026.
 
 <p>
-<a href="https://theta-desk.streamlit.app"><b>▶ Live dashboard</b></a> ·
+<a href="https://theta-desk.streamlit.app"><b>▶ Dashboard</b></a> (daily snapshot) ·
 <a href="https://theta-desk.streamlit.app/?judge=1">Judge mode</a> ·
 <a href="WRITEUP.md">One-page write-up</a> ·
-<a href="DEVLOG.md">DEVLOG — 27 documented self-corrections</a> ·
+<a href="DEVLOG.md">DEVLOG — 28 documented self-corrections</a> ·
 <a href="API-FEEDBACK.md">Feedback for the Alpaca team</a>
 </p>
 
@@ -26,49 +26,65 @@ the gap. Rich vol → sell defined-risk iron condors. Cheap vol → buy convexit
 
 **Day-one proof it's a system, not a story:** the plan said "sell condors".
 The live signal said realized vol was *above* implied — premium was cheap.
-The agent went against its authors' plan and bought puts instead. That book
-is what you see green on the dashboard.
+The deterministic core went against its authors' plan and bought puts instead
+(the LLM roles were not yet keyed on day one — the journal shows four
+fallbacks on that tick). That book is what you see green on the dashboard.
+Honest footnote (DEVLOG #28): the realized-vol window was lagging by two
+weeks until Sep 2; with the corrected window the same signal reads *rich*.
 
 ## LLMs decide whether it's wise. Code decides whether it's allowed.
 
-Four LLM roles run every 15-minute cycle — a Vol Analyst (Claude), a blind
-Second Opinion (Mistral via Featherless — cross-provider, so disagreement is
-real), a News Vetoer (Qwen, cheap enough for every tick), and a Risk Officer
-(Claude) whose only job is to attack the trade. They argue, veto and shrink
-size. **They cannot loosen a single one of 19 deterministic risk gates.**
+Four LLM roles run every 15-minute cycle that has a candidate — a Vol Analyst
+(Claude), a blind Second Opinion (Mistral via Featherless — cross-provider,
+so disagreement is real), a News Vetoer (Qwen, cheap enough for every tick),
+and a Risk Officer (Claude) whose only job is to attack the trade. They
+argue, veto (for the whole session) and shrink size; they can flag the market
+data itself as suspect, which blocks new risk. **They cannot loosen a single
+one of the 19 deterministic risk rules** (12 entry gates in
+`engine/gates.py` plus paper-only, idempotent ids, the tick lock, the
+data-quality gate, the desk veto, and the exit rules in `manage/`).
 
 The central gate is the desk's veto right: before any order, the **entire
 book plus the candidate** is repriced over a ±20% underlying grid at the
-judging horizon, under base and stressed-vol scenarios, each leg off its own
-underlying's spot. Worst case breaches budget → the order is never sent, and
-the refusal is journaled with the full grid. It is a client-side
-implementation of the same worst-case principle as Alpaca's universal spread
-rule for options margin — applied one step earlier.
+judging horizon (the Sep 18 expiry, so every leg is valued at intrinsic;
+the stressed-vol branch engages for legs that outlive the horizon), each leg
+off its own underlying's spot. Worst case breaches budget → the order is
+never sent, and the refusal is journaled with the worst-case point. It is a
+client-side implementation of the same worst-case principle as Alpaca's
+universal spread rule for options margin — applied one step earlier.
 
 ## Everything replays. Every number regenerates.
 
 - **Hash-chained journal** — every decision line carries the SHA-256 of the
-  previous one; edit a byte and `verify-journal` fails
+  previous one; edit a byte in place and `verify-journal` fails. The chain
+  is self-seeded, so the committed git history is its external anchor.
 - **Fills are the truth** — an order is *pending* until the broker reports
   the fill, and the book is repriced to the real fill; `tools/broker_check.py`
   diffs the store against the broker's fills
-- **Bit-for-bit replay** — every tick stores its inputs; `tools/replay.py`
-  re-runs the deterministic pipeline over the whole week (currently 100% MATCH)
+- **Signal replay** — every tick stores its inputs; `tools/replay.py`
+  recomputes the signal layer (realized vol, ATM IV, VRP, candidate id) from
+  every snapshot (currently 100% MATCH); the order path is replayed
+  end-to-end against a fake broker in `tests/test_tick_flow.py`
 - **Claims reconciler** — `tools/reconcile.py` recomputes every number in
   [WRITEUP.md](WRITEUP.md) from the journal, no credentials required
-- **Live ablation** — three counterfactual books run on identical inputs:
-  the strategy without gates, without its hedge, and a naive
-  "read a headline, buy an option" baseline. The dollar value of every
-  design decision, measured, not asserted
+- **Live ablation** — counterfactual books on identical inputs: the strategy
+  without gates (unmanaged, marked at mid) and a naive "read a headline, buy
+  an option" baseline. A bound on the value of the gates, not a like-for-like
+  P&L; the hedge sleeve has not fired yet because the book has been long
+  premium, so the "no hedge" curve is hidden while it equals the real one
+- **Data-quality gate** (DEVLOG #28) — every tick classifies its own inputs
+  (quote, spot vs last close, bar freshness, IV bounds) as full / mark-only /
+  skip before anything is written; closed-market ticks only settle orders
 
 ## Architecture
 
 ```
 scheduler (mirrors the exchange session, survives sleep & battery)
-  └─ L1 data        chain + greeks + IV (free indicative feed), 20d RV, per-underlying spots
+  └─ L1 data        chain + greeks + IV (free indicative feed), 20d RV, per-underlying spots,
+  │                 data-quality gate (full / mark-only / skip)
   └─ L2 desk        4 LLM roles argue/veto/size — never compute
   └─ L3 selector    deterministic regime map -> iron condor / long vega / QQQ fallback
-  └─ L4-L5 gates    19 pure-Python gates incl. ★ portfolio payoff simulator
+  └─ L4-L5 gates    12 pure-Python entry gates incl. ★ portfolio payoff simulator
   └─ L6 executor    mleg limit via Alpaca CLI (signed prices), idempotent ids, REST fallback
   └─ L7 manager     profit targets · realization policy · NFP de-risk · halt-not-flatten
   └─ L8 audit       hash journal · snapshots · replay · reconcile · evidence archive
@@ -85,19 +101,20 @@ to take risk.
 |---|---|
 | Trading API | execution, positions, activities, portfolio history |
 | Market Data API | option chain with greeks + IV on the **free** indicative feed |
-| **MCP Server** | the research loop (Claude Code drove the whole build through it) |
-| **CLI** | the autonomous order path: `alpaca api POST /v2/orders`, exit codes, idempotent `client_order_id` |
+| **CLI** | the autonomous order path: `alpaca api POST /v2/orders`, exit codes, idempotent `client_order_id` (3 of 4 live entries and every close; the very first entry used the REST fallback before the CLI was installed) |
+| MCP Server | development tooling only — used interactively from Claude Code during research; the running agent does not call it |
 | mleg orders | 2–4 legs, lowest-terms ratios, **signed limit prices** (see DEVLOG #12 — found the hard way) |
 
 ## Reproduce everything
 
 ```bash
 pip install -e ".[dashboard,dev]"
-python -m pytest tests -q            # 58 tests
+python -m pytest tests -q            # 103 tests
 python tools/demo_week.py            # offline simulated week, zero credentials
-python tools/replay.py               # decisions reproduce bit-for-bit
+python tools/replay.py               # the signal layer reproduces from every snapshot
 python tools/reconcile.py            # every write-up number regenerates
 streamlit run dashboard/app.py       # the glass box, locally
+python -m thetadesk.main alert-test  # prove Telegram/webhook/heartbeat delivery
 ```
 
 Live paper trading additionally needs `.env` (see `.env.example`) — and the
@@ -111,7 +128,10 @@ process refuses to start unless the base URL is the paper host (fail-closed,
   mleg sign-convention bug that a weekend acceptance test caught before it
   could hurt, and the pair of labeled test orders that neutralized it (−$6)
 - The cloud dashboard renders a committed data snapshot (refreshed daily);
-  live keys never leave the machine
+  live keys never leave the machine. The header shows the last tick time.
+- Two post-close ticks on Sep 1 priced the book off a one-sided after-hours
+  quote; those eight mark rows are flagged `invalid` and not plotted, the
+  journal lines stay (the chain is never edited) — DEVLOG #28
 - Paper fills are optimistic vs live markets (no impact, no queue); stated
   in the write-up
 

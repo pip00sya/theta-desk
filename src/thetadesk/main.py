@@ -671,10 +671,13 @@ def cmd_tick_locked(args) -> int:
         print("tick skipped: another tick holds the lock", file=sys.stderr)
         return 0
     try:
-        return cmd_tick(args)
+        rc = cmd_tick(args)
+        _heartbeat_ping(ok=(rc == 0))
+        return rc
     except SystemExit:
         raise
     except Exception as e:
+        _heartbeat_ping(ok=False)
         # alert FIRST with no journal dependency (a corrupt journal tail used
         # to make this handler itself raise — DEVLOG #28), then journal.
         alerts.alert("CRITICAL", "tick crashed", f"{type(e).__name__}: {e}", journal=None)
@@ -689,6 +692,29 @@ def cmd_tick_locked(args) -> int:
         return 1
     finally:
         store.set_kv("tick_lock", "")
+
+
+def _heartbeat_ping(ok: bool) -> None:
+    """Dead-man switch (DEVLOG #28): if HEARTBEAT_URL is set (e.g. a
+    healthchecks.io check on a */15 13-20 UTC weekday schedule), every tick
+    pings it; a missed ping — laptop asleep, task disabled, reboot without
+    login — is noticed by a server that is not this laptop."""
+    url = os.environ.get("HEARTBEAT_URL")
+    if not url:
+        return
+    try:
+        import requests
+        requests.get(url if ok else url.rstrip("/") + "/fail", timeout=5)
+    except Exception:
+        pass
+
+
+def cmd_alert_test(args) -> int:
+    """Prove alert delivery from the scheduler's own environment."""
+    out = alerts.alert("INFO", "alert test", "THETA DESK can call for help", journal=None)
+    _heartbeat_ping(ok=True)
+    print(json.dumps({**out, "heartbeat_url_set": bool(os.environ.get("HEARTBEAT_URL"))}))
+    return 0 if out.get("logged") else 1
 
 
 def cmd_status(args) -> int:
@@ -724,9 +750,10 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--mock", action="store_true", help="offline synthetic market")
     sub.add_parser("status")
     sub.add_parser("verify-journal")
+    sub.add_parser("alert-test", help="send one INFO alert through every configured channel")
     args = p.parse_args(argv)
     return {"tick": cmd_tick_locked, "status": cmd_status,
-            "verify-journal": cmd_verify_journal}[args.cmd](args)
+            "verify-journal": cmd_verify_journal, "alert-test": cmd_alert_test}[args.cmd](args)
 
 
 if __name__ == "__main__":
