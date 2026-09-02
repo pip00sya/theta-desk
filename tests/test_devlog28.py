@@ -233,3 +233,55 @@ def test_rehearsal_refuses_live_data_dir(monkeypatch):
         mock = False
         dry_run = True
     assert m.cmd_tick(A()) == 3
+
+
+# ---- DEVLOG #29: one model's doubt must not kill the strategy --------------
+
+def test_data_suspect_needs_both_regime_models(monkeypatch):
+    from thetadesk import config as cfgmod
+    from thetadesk.agents import desk as deskmod
+
+    def make(analyst_suspect, second_suspect):
+        answers = {
+            "vol_analyst": '{"regime": "rich", "confidence": 0.8, "data_suspect": %s}'
+                           % ("true" if analyst_suspect else "false"),
+            "second_opinion": '{"regime": "rich", "confidence": 0.9, "data_suspect": %s}'
+                              % ("true" if second_suspect else "false"),
+            "news_vetoer": '{"veto": false, "reason": "calm"}',
+            "risk_officer": '{"objection": "gap", "severity": "medium"}',
+        }
+        return lambda role, provider, model, system, user, timeout_s=45, max_tokens=2000: \
+            llm.LLMExchange(role, provider, model, "ph", answers[role], True)
+
+    cfg = cfgmod.load()
+    sig = sigmod.MarketSignals(762.4, 0.0717, 0.1336, 1.0)
+    monkeypatch.setattr(llm, "call", make(True, False))
+    one = deskmod.run_desk(sig, ["h"], "cand", "book", cfg)
+    assert one.data_suspect is False and one.size_mult == 1.0   # a lone doubt is an opinion
+    monkeypatch.setattr(llm, "call", make(True, True))
+    both = deskmod.run_desk(sig, ["h"], "cand", "book", cfg)
+    assert both.data_suspect is True and both.size_mult == 0.5  # agreed doubt halves size
+
+
+def test_regime_prompt_forbids_price_level_as_evidence():
+    """The first live tick was blocked because a model called SPY at 762
+    'outside historical norms' — a training-cutoff artifact, not a data fault."""
+    from thetadesk.agents.desk import ANALYST_SYSTEM, SECOND_SYSTEM
+    for p in (ANALYST_SYSTEM, SECOND_SYSTEM):
+        assert "NEVER evidence of corruption" in p
+        assert "clipped" in p.lower()
+
+
+def test_desk_signal_text_carries_spread_and_ratio(monkeypatch):
+    from thetadesk import config as cfgmod
+    from thetadesk.agents import desk as deskmod
+    seen = {}
+
+    def fake(role, provider, model, system, user, timeout_s=45, max_tokens=2000):
+        seen[role] = user
+        return llm.LLMExchange(role, provider, model, "ph", '{"regime": "rich"}', True)
+
+    monkeypatch.setattr(llm, "call", fake)
+    deskmod.run_desk(sigmod.MarketSignals(762.4, 0.0717, 0.1336, 1.0), ["h"], "c", "b",
+                     cfgmod.load())
+    assert "vol points" in seen["vol_analyst"] and "iv/rv=1.86x" in seen["vol_analyst"]

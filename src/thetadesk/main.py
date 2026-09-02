@@ -447,12 +447,22 @@ def cmd_tick(args) -> int:
         _alert_on_change(store, "llm_partial", 0 < len(desk.fallbacks) < 4, "INFO",
                          "some LLM roles fell back", "; ".join(desk.fallbacks)[:400], journal)
         if desk.data_suspect:
-            # an LLM says the inputs look corrupted: recorded, and no new risk
+            # DEVLOG #29: both models doubting the feed is a WARNING, not a
+            # verdict. It blocks new risk only when the deterministic gate
+            # also found something wrong — otherwise it just halves size
+            # (size_mult), because on the first live tick one model called a
+            # perfectly good SPY spot "outside historical norms" and killed a
+            # valid condor. LLMs tighten; code decides what is allowed.
+            corroborated = dq.mode != "full" or bool(dq.reasons)
             journal.append("data_suspect", {"analyst": desk.regime_analyst,
-                                            "second": desk.regime_second})
+                                            "second": desk.regime_second,
+                                            "corroborated_by_data_gate": corroborated,
+                                            "action": "blocked" if corroborated else "size halved"})
             _alert_on_change(store, "data_suspect", True, "WARN",
-                             "LLM flagged the market data as suspect", cand_desc, journal)
-            cand = None
+                             "LLM flagged the market data as suspect",
+                             f"{'BLOCKED' if corroborated else 'size halved'}: {cand_desc}", journal)
+            if corroborated:
+                cand = None
         else:
             _alert_on_change(store, "data_suspect", False, "WARN", "", "", journal)
     if cand is not None:

@@ -28,9 +28,17 @@ REGIME_GLOSSARY = (
     "[0, 1]. 0.5 means implied vol equals realized. 'rich' = implied vol EXPENSIVE relative "
     "to realized (score >= 0.60, i.e. IV at least 10% above RV; favours SELLING premium). "
     "'cheap' = implied vol BELOW realized (score < 0.40; favours BUYING convexity). "
-    "'neutral' = in between. A high score can never mean 'cheap'. If the inputs look "
-    "corrupted (e.g. IV above 60%, or a spot that does not match the strikes you know), "
-    "set \"data_suspect\": true. "
+    "'neutral' = in between. A high score can never mean 'cheap'. The scale is CLIPPED: a "
+    "score of exactly 1.00 only means IV is at least 50% above RV — that is a rich reading, "
+    "not an error. Judge richness from the vol-point spread and ratio given to you, not from "
+    "the clipped score. "
+    # DEVLOG #29: the analyst set data_suspect because 'SPY at 762 is outside historical
+    # norms' — a knowledge-cutoff artifact that blocked a valid condor on the first tick.
+    "\"data_suspect\" means the inputs CONTRADICT EACH OTHER and must be true only for: ATM IV "
+    "above 60%, a spot that does not sit inside the strike range you are given, or an implied "
+    "vol more than 3x realized. You do NOT know the current price level of any index: today is "
+    "later than your training data, so the absolute level of spot, strikes or the account "
+    "equity is NEVER evidence of corruption. Unfamiliar price levels are normal. "
 )
 
 ANALYST_SYSTEM = (
@@ -90,6 +98,10 @@ class DeskView:
             m *= 0.5
         if self.objection_severity == "high":
             m *= 0.5
+        if self.data_suspect:
+            # DEVLOG #29: an unconfirmed data doubt halves size; only the
+            # deterministic gate can stop the trade outright
+            m *= 0.5
         return m
 
     def to_dict(self) -> dict:
@@ -117,8 +129,13 @@ def _det_regime(score: float, cfg: Config) -> str:
 def run_desk(signals: MarketSignals, headlines: list[str], candidate_desc: str,
              book_desc: str, cfg: Config) -> DeskView:
     L = cfg["llm"]
+    # the clipped score alone reads like an anomaly at its maximum; the raw
+    # spread and ratio are what actually say how rich the premium is
+    spread_pts = (signals.atm_iv - signals.rv20) * 100
+    ratio = (signals.atm_iv / signals.rv20) if signals.rv20 > 0 else float("nan")
     sig_txt = (f"spot={signals.spot:.2f} rv20={signals.rv20:.4f} "
-               f"atm_iv={signals.atm_iv:.4f} vrp_score={signals.vrp:.3f}")
+               f"atm_iv={signals.atm_iv:.4f} vrp_score={signals.vrp:.3f} "
+               f"(iv-rv={spread_pts:+.1f} vol points, iv/rv={ratio:.2f}x)")
     det = _det_regime(signals.vrp, cfg)
     exchanges: list[dict] = []
     fallbacks: list[str] = []
@@ -159,8 +176,11 @@ def run_desk(signals: MarketSignals, headlines: list[str], candidate_desc: str,
     severity = str((r or {}).get("severity", "low")).strip().lower()
     if severity not in ("low", "medium", "high"):
         severity = "low"
-    data_suspect = any(bool(x.get("data_suspect")) is True or str(x.get("data_suspect")).lower() == "true"
-                       for x in (a, s) if x)
+    # DEVLOG #29: ONE model's doubt is an opinion, not a fact — both regime
+    # readers must agree before the desk treats the feed as suspect
+    flags = [bool(x.get("data_suspect")) is True or str(x.get("data_suspect")).lower() == "true"
+             for x in (a, s) if x]
+    data_suspect = bool(flags) and all(flags) and len(flags) == 2
 
     return DeskView(
         regime_analyst=regime_a,
