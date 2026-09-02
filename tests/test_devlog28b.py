@@ -247,3 +247,31 @@ def test_an_estimated_entry_price_must_not_hide_a_profit_target():
                       0, "2026-09-18")
     assert a.action == "close" and "debit profit target" in a.reason, a
     assert a.est_pnl == 229.5, a.est_pnl
+
+
+def test_one_broken_underlying_does_not_cost_the_tick(desk, monkeypatch):
+    """The rotation reaches more names than the old single fallback, so a
+    flaky chain must be journaled and stepped over, not raised (DEVLOG #29b)."""
+    m, cfg = desk
+    broker = FakeBroker(realized_scale=0.70)
+    primary = cfg["universe"]["primary"]
+    real_chain = broker.option_chain
+
+    def flaky(underlying, expiry, feed="indicative"):
+        if underlying != primary:
+            raise ConnectionError("chain feed timed out")
+        return real_chain(underlying, expiry, feed)
+
+    monkeypatch.setattr(broker, "option_chain", flaky)
+    monkeypatch.setattr(m, "make_client", lambda mock: broker)
+    assert m.cmd_tick_locked(Args()) == 0
+    st = m.Store(cfg.db_path)
+    sid = next(x for x in st.all_structures() if x["kind"] == "iron_condor")["structure_id"]
+    coid = json.loads(st.get_kv(f"open_order:{sid}"))["client_order_id"]
+    st.conn.close()
+    broker.fill(coid, {l["symbol"]: 1.0 for l in broker.submitted[0]["legs"]})
+    assert m.cmd_tick_locked(Args()) == 0          # SPY held -> alts tried -> all raise
+    j = _journal(cfg)
+    assert [e for e in j if e["kind"] == "tick_end"], "tick must still complete"
+    assert any(e["kind"] == "alt_underlying_none" and "ConnectionError" in str(e["data"].get("reason", ""))
+               for e in j), [e["data"] for e in j if e["kind"] == "alt_underlying_none"]

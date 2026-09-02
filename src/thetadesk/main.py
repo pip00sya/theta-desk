@@ -571,10 +571,19 @@ def cmd_tick(args) -> int:
             if u == primary:
                 u_entries, u_chain = entries, None
             else:
-                u_chain = client.option_chain(u, expiry)
-                if not u_chain:
+                # DEVLOG #29b's rule, applied to the wider search: a single bad
+                # symbol must not cost the whole tick. The rotation reaches more
+                # underlyings than the old single fallback did, so one flaky
+                # chain would otherwise take the book's management with it.
+                try:
+                    u_chain = client.option_chain(u, expiry)
+                    if not u_chain:
+                        continue
+                    uq = client.latest_stock_quote(u)
+                except Exception as exc:                      # noqa: BLE001
+                    journal.append("alt_underlying_none",
+                                   {"underlying": u, "reason": f"{type(exc).__name__}: {exc}"[:120]})
                     continue
-                uq = client.latest_stock_quote(u)
                 u_spot = 0.5 * (float(uq.get("bp") or 0) + float(uq.get("ap") or 0))
                 if not (float(uq.get("bp") or 0) > 0 and float(uq.get("ap") or 0) > 0):
                     journal.append("alt_underlying_none", {"underlying": u, "spot": u_spot,
