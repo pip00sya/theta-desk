@@ -43,10 +43,20 @@ structures:
 risk:
   # RED-TEAM patched values
   per_structure_max_loss_frac: 0.0125     # gate #7: 1.25% of equity
-  portfolio_worst_case_frac: 0.06         # gate #8 base: 6% of equity
-  portfolio_worst_case_cap: 0.08          # earned-budget ceiling
+  # DEVLOG #32: the base was the START of the envelope, not its edge — the
+  # earned-budget rule was always meant to walk it up to the cap. At 6% the
+  # desk sat at 2.5% of equity with three condors and $69/day of theta on the
+  # table it was not allowed to reach. The base moves to 7.5%; the CAP DOES
+  # NOT MOVE. The worst case the desk can ever hold is still 8% of equity,
+  # exactly the number the strategy was designed around.
+  portfolio_worst_case_frac: 0.075        # gate #8 base: 7.5% of equity
+  portfolio_worst_case_cap: 0.08          # earned-budget ceiling — UNCHANGED
   earned_budget_gain_mult: 0.5            # budget = base + 0.5 * realized_gains (capped)
-  daily_new_risk_frac: 0.025              # gate #9: 2.5% per day
+  daily_new_risk_frac: 0.035              # gate #9: 3.5% per day (DEVLOG #32:
+                                          # 2.5% took three sessions to fill a
+                                          # book the portfolio gate would allow
+                                          # in two; the ceiling is unchanged, so
+                                          # this buys theta-days, not exposure)
   cheap_sleeve_budget_frac: 0.015         # gate #18: total open long-premium debit cap
   cheap_sleeve_budget_cap: 0.025          # gate #18 earned ceiling (base + 0.5x realized)
   drawdown_halt_frac: 0.04                # gate #14: halt new risk (NOT flatten)

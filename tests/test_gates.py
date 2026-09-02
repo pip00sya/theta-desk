@@ -7,6 +7,7 @@ from thetadesk.engine import gates
 
 ASOF = datetime(2026, 8, 31, 15, 0, tzinfo=timezone.utc)
 CFG = cfgmod.load()
+R = CFG["risk"]          # thresholds come from the config, never a copy of it
 
 
 def _leg(sym, qty, px):
@@ -121,7 +122,8 @@ def test_g7_rejects_oversized_structure():
 
 
 def test_g9_daily_budget_blocks():
-    r = _run(_condor(), new_risk_today=2400.0)  # 2400 + 780 > 2.5% (2500)
+    limit = R["daily_new_risk_frac"] * 100_000
+    r = _run(_condor(), new_risk_today=limit - 100.0)   # +1 condor (~780) breaks it
     assert any(x.gate == "g9_daily_budget" and not x.passed for x in r.results)
 
 
@@ -140,9 +142,15 @@ def test_g14_halt_on_drawdown():
 
 
 def test_g8_portfolio_budget_with_earned_extension():
-    # 8 condors of ~780 = 6240 > 6% base budget (6000): must fail without gains
+    # The point of this test is the WINDOW between the base budget and the
+    # earned cap: a book that the base refuses and realized gains let through.
+    # n book condors + the candidate must land inside it, or the test proves
+    # nothing (with base 7.5% and cap 8% the window is one condor wide).
+    base, cap = R["portfolio_worst_case_frac"] * 100_000, R["portfolio_worst_case_cap"] * 100_000
+    n = int(base // 780)
+    assert base < (n + 1) * 780 <= cap, "no window between base and cap for this config"
     book = []
-    for i in range(8):
+    for i in range(n):
         for l in _condor().legs:
             book.append(Leg(l.contract, l.qty, l.entry_price))
     r = gates.run_entry_gates(
@@ -188,6 +196,8 @@ def test_property_random_books_never_pass_beyond_budget():
             high_watermark=100_000, realized_gains=gains, new_risk_today=0.0,
             cfg=CFG, minutes_from_open=120.0, minutes_to_close=120.0, market_open=True)
         g8 = next(x for x in r.results if x.gate == "g8_portfolio_worst_case")
-        budget = min(6000.0 + 0.5 * gains, 8000.0)
+        budget = min(R["portfolio_worst_case_frac"] * 100_000
+                     + R["earned_budget_gain_mult"] * gains,
+                     R["portfolio_worst_case_cap"] * 100_000)
         if g8.passed:
             assert -r.payoff.worst_pnl <= budget + 1.0
