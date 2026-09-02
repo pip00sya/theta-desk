@@ -222,3 +222,28 @@ def test_second_entry_goes_to_a_different_underlying(desk, monkeypatch):
     first_held = order["held"].get(order["order"][0], 0)
     assert first_held == 0, order            # never re-enters the held name first
     assert order["order"][-1] == cfg["universe"]["primary"], order
+
+
+def test_an_estimated_entry_price_must_not_hide_a_profit_target():
+    """2026-09-01, SPY 751 put, the single most expensive bug so far (~$208).
+
+    The desk sent the order at an estimated 3.74 and filled at 3.66, but
+    nothing rewrote the leg, so the mark read (5.955-3.74)*100 = +221.5 =
+    +59.2% of an inflated cost and held one point under the +60% exit. The
+    three sibling puts, whose estimates happened to match their fills, all
+    closed at +64/66/70%. Overnight SPY rebounded and the +$229 became +$21.
+    Marks are computed from FILLS now (apply_fills); this pins that down.
+    """
+    from datetime import datetime, timezone
+    from thetadesk.manage.positions import apply_fills, review_book
+    estimated = json.dumps([{"symbol": "SPY260918P00751000", "qty": 1, "entry_price": 3.74}])
+    s = {"structure_id": "bc78ba8c", "kind": "cheap_vol_put", "sleeve": "core", "qty": 1,
+         "legs_json": apply_fills(estimated, {"SPY260918P00751000": 3.66}),
+         "net_credit": -3.66, "status": "open"}
+    chain = {"SPY260918P00751000": {"latestQuote": {"bp": 5.95, "ap": 5.96}}}
+    mgmt = {"profit_target_frac": 0.35, "debit_profit_target_frac": 0.60,
+            "realize_min_frac": 0.25, "structure_stop_credit_mult": 2.0, "time_stop_dte": 7}
+    [a] = review_book([s], chain, mgmt, datetime(2026, 9, 1, 18, 45, tzinfo=timezone.utc),
+                      0, "2026-09-18")
+    assert a.action == "close" and "debit profit target" in a.reason, a
+    assert a.est_pnl == 229.5, a.est_pnl
