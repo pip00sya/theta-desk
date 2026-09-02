@@ -1,7 +1,6 @@
-# generated 2026-09-02T12:04:39Z at commit 99dd637 by: make verify
-OK: chain intact (370 entries)
+﻿# generated 2026-09-02T17:44:38Z at commit c637d16 by: ops/publish.ps1
+OK: chain intact (584 entries)
 
-replay: 39/39 snapshots reproduce, 0 divergence(s)
-CLAIM  test_functions                   101
+replay: 56/56 snapshots reproduce, 0 divergence(s)
 
 20/20 claims reproduced - 0 mismatches - no credentials required
