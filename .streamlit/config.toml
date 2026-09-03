@@ -1,0 +1,17 @@
+# The dashboard is one of the three links a judge clicks. Default Streamlit
+# chrome reads as "a notebook someone shared"; these tokens make it read as an
+# instrument. Colours are the desk's own: ink-navy ground, teal for the agent,
+# amber for a refusal, brick for a loss.
+[theme]
+base = "dark"
+primaryColor = "#35E0B0"
+backgroundColor = "#0B0F1A"
+secondaryBackgroundColor = "#111827"
+textColor = "#E4EAF5"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

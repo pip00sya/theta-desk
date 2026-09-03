@@ -47,8 +47,54 @@ def _quality(m: dict) -> str:
         return "ok"
 
 
-st.title("THETA DESK — autonomous options desk on Alpaca (paper)")
-st.caption("Paper trading simulation only. Hypothetical results. Not investment advice.")
+# ---- chrome (DEVLOG #36) ---------------------------------------------------
+# Streamlit's defaults read as "a notebook someone shared". This is one of the
+# three links a judge opens, so the page gets the desk's own typography and
+# palette, and loses the deploy/hamburger furniture that means nothing to them.
+st.html("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none; }
+  html, body, [class*="css"], .stMarkdown, .stTabs { font-family: "IBM Plex Sans", system-ui, sans-serif; }
+  .block-container { padding-top: 3.4rem; max-width: 1500px; }
+
+  .desk-mast { border-bottom: 2px solid #35E0B0; padding-bottom: 14px; margin-bottom: 6px; }
+  .desk-mast .kick { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: .18em;
+                     text-transform: uppercase; color: #35E0B0; }
+  .desk-mast h1 { font-size: 40px; font-weight: 700; letter-spacing: -.02em; margin: 6px 0 4px;
+                  color: #F2F6FF; line-height: 1.1; }
+  .desk-mast .sub { color: #8FA2C4; font-size: 15px; }
+  .desk-mast .disc { color: #64748B; font-size: 12.5px; margin-top: 8px;
+                     font-family: "IBM Plex Mono", monospace; }
+
+  [data-testid="stMetric"] { background: #111827; border: 1px solid #223049; border-radius: 4px;
+                             padding: 14px 18px; }
+  [data-testid="stMetricLabel"] { font-family: "IBM Plex Mono", monospace; font-size: 11px !important;
+                                  letter-spacing: .12em; text-transform: uppercase; color: #8FA2C4 !important; }
+  [data-testid="stMetricValue"] { font-size: 30px !important; font-variant-numeric: tabular-nums;
+                                  color: #F2F6FF !important; }
+
+  .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid #223049; }
+  .stTabs [data-baseweb="tab"] { font-family: "IBM Plex Mono", monospace; font-size: 12.5px;
+                                 letter-spacing: .06em; text-transform: uppercase; padding: 10px 16px; }
+  .stTabs [aria-selected="true"] { color: #35E0B0 !important; }
+
+  code, pre, .stDataFrame { font-family: "IBM Plex Mono", monospace !important; }
+  .stAlert { border-radius: 3px; }
+</style>
+""")
+
+st.html("""
+<div class="desk-mast">
+  <div class="kick">Alpaca paper account PA39C10YAMYQ · glass box</div>
+  <h1>THETA DESK</h1>
+  <div class="sub">An autonomous options desk that prices <b>volatility</b>, not direction.
+  Every number on this page is recomputed from a hash-chained journal.</div>
+  <div class="disc">paper trading only · hypothetical results · not investment advice</div>
+</div>
+""")
 
 # ---- liveness (DEVLOG #28) -------------------------------------------------
 last_ts = store.get_kv("last_tick_ts", "")
