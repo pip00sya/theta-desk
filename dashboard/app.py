@@ -46,22 +46,28 @@ DATA = ROOT / "dashboard" / "web" / "data.json"
 
 
 def _data() -> dict | None:
-    """Prefer a freshly computed export; fall back to the committed one.
+    """Serve the published export; recompute only where there is something to
+    recompute.
 
-    On Streamlit Cloud there is no live store and no credentials, so the commit
-    ships data.json and this just reads it. Locally it recomputes, so the page
-    is current the moment a tick lands."""
+    On Streamlit Cloud there is no live store, no credentials and no .env, so a
+    rebuild there can only produce a *worse* copy of the file the commit already
+    carries — and it did: a failed pytest collection printed "null cases
+    collected" on the live page. The host now rebuilds only when it can see the
+    desk's own environment, and otherwise serves exactly what was published.
+    """
     committed = None
     try:
         committed = json.loads(DATA.read_text(encoding="utf-8"))
     except Exception:
         pass
+    if not (ROOT / ".env").exists():
+        return committed
     try:
         sys.path.insert(0, str(ROOT / "tools"))
         import site_data                                    # noqa: PLC0415
+        import importlib                                    # noqa: PLC0415
+        importlib.reload(site_data)   # a rerun must not serve a cached module
         live = site_data.build()
-        # the broker figure needs credentials the cloud does not have; keep the
-        # committed one and let the page say when it was read
         if not live.get("broker") and committed and committed.get("broker"):
             live["broker"] = committed["broker"]
             live["broker_stale"] = True

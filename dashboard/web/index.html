@@ -414,7 +414,7 @@ function render(d){
       <div class="faint" style="font-size:11.5px">No credentials, no install. Verified on four clones.</div>
       <code>python tools/reconcile.py</code></div>
     <div class="vcard"><b>${v.test_defs}</b><div class="t">Test functions
-      <span class="faint">(${v.tests_collected} cases collected)</span></div>
+      <span class="faint">${v.tests_collected ? v.tests_collected + " cases collected" : "collection not run on this host"}</span></div>
       <div class="faint" style="font-size:11.5px">Two numbers because parametrised tests expand —
         run it and both match.</div><code>python -m pytest tests -q</code></div>
     <div class="vcard"><b>${v.devlog}</b><div class="t">Documented self-corrections</div>
