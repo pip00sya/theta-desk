@@ -283,7 +283,9 @@ function render(d){
     // divided by contracts IS the per-share difference in cents. Compare that
     // to a quote width, which is the only thing that can honestly excuse it.
     const cents  = ctr ? Math.abs(gap)/ctr : 0;
-    const state  = Math.abs(gap) <= 5 ? "" : (ctr && cents <= 10 ? " lag" : " bad");
+    const q      = d.quotes;
+    const bound  = q ? q.narrowest_c : 10;   // measured, when we have it
+    const state  = Math.abs(gap) <= 5 ? "" : (ctr && cents <= bound ? " lag" : " bad");
     $("#recon").className = "recon" + state;
     const sum = `<span class="eq"><b>${plain(b.equity)}</b> <span>broker</span>
        <span>·</span> <b>${plain(marked)}</b> <span>marked</span></span>`;
@@ -293,11 +295,13 @@ function render(d){
          marked are different kinds of number and are never added without showing the subtraction.</span>`
     : state === " lag" ? `${sum}<span class="tag">lag ${money(gap)}</span>
          <span class="note">$${Math.abs(gap).toFixed(2)} across ${ctr} open contracts is
-         <b>${cents.toFixed(1)}¢ each</b> — inside the quoted spread. We mark at the NBBO mid
-         at ${bk.marked_at.slice(11,16)}Z; the broker marks at the official close. Printed, not netted away.</span>`
+         <b>${cents.toFixed(1)}¢ each</b> — ${q
+           ? `narrower than the tightest of those ${q.legs} quotes (${q.narrowest_c}¢; median ${q.median_c}¢, widest ${q.widest_c}¢)`
+           : `inside a normal quote width`}. We mark at the NBBO mid at
+         ${bk.marked_at.slice(11,16)}Z; the broker marks at the official close. Printed, not netted away.</span>`
     :                `${sum}<span class="tag">gap ${money(gap)}</span>
-         <span class="note">${ctr ? cents.toFixed(0)+"¢ per open contract" : "no open contracts"} —
-         wider than a quote can explain. Treat the broker figure as the true one and
+         <span class="note">${ctr ? cents.toFixed(1)+"¢ per open contract" : "no open contracts"} —
+         wider than ${q ? `the tightest quote we hold (${q.narrowest_c}¢)` : "a quote"} can explain. Treat the broker figure as the true one and
          <code>python tools/broker_check.py</code> for the per-leg difference.</span>`;
   }
 

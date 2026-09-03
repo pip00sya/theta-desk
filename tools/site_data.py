@@ -213,6 +213,27 @@ def build() -> dict:
     except Exception:
         broker = None
 
+    # The page explains the broker-vs-marked gap as a per-contract difference
+    # "inside the quoted spread". That is a measurable claim, so measure it:
+    # publish the actual widths of the legs we hold and let the page compare.
+    quotes = None
+    try:
+        syms = [l["symbol"] for r in open_rows for l in r["legs"]]
+        if syms and broker is not None:
+            import os, requests                              # noqa: PLC0415
+            qh = {"APCA-API-KEY-ID": os.environ["ALPACA_API_KEY"],
+                  "APCA-API-SECRET-KEY": os.environ["ALPACA_SECRET_KEY"]}
+            qq = requests.get("https://data.alpaca.markets/v1beta1/options/quotes/latest",
+                              params={"symbols": ",".join(syms)}, headers=qh,
+                              timeout=15).json().get("quotes", {})
+            w = sorted(round((z["ap"] - z["bp"]) * 100, 1)
+                       for z in qq.values() if z.get("ap") and z.get("bp"))
+            if w:
+                quotes = {"legs": len(w), "narrowest_c": w[0],
+                          "median_c": w[len(w) // 2], "widest_c": w[-1]}
+    except Exception:
+        quotes = None
+
     return {
         "generated_utc": now.isoformat(timespec="seconds"),
         "commit": head,
@@ -239,6 +260,7 @@ def build() -> dict:
             "data_quality": sig.get("data_quality"),
         },
         "greeks": greeks,
+        "quotes": quotes,
         "curves": curves,
         "marks_quarantined": quarantined,
         "positions": {"open": open_rows, "closed": closed_rows},
