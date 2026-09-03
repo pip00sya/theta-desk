@@ -478,6 +478,9 @@ $("#tabs").onclick = e => {
 
 async function load(){
   try{
+    // the host defines window.__DATA__; served as a static file there is no
+    // host, so the same page fetches the export beside it
+    if(window.__DATA__){ render(window.__DATA__); return; }
     const r = await fetch("data.json?" + Math.floor(Date.now()/60000));
     if(!r.ok) throw new Error(r.status);
     render(await r.json());

@@ -43,6 +43,7 @@ st.markdown("""<style>
 
 PAGE = ROOT / "dashboard" / "web" / "index.html"
 DATA = ROOT / "dashboard" / "web" / "data.json"
+WEB = ROOT / "dashboard" / "web"
 
 
 def _data() -> dict | None:
@@ -76,18 +77,42 @@ def _data() -> dict | None:
         return committed
 
 
+def _inline(html: str) -> str:
+    """Fold local stylesheets and scripts into the document.
+
+    Served as static files the page is ordinary HTML with <link> and <script
+    src> tags, so it stays editable in pieces instead of one unreadable file.
+    Inside the Streamlit component there is no path to fetch them from, so the
+    same tags are replaced by their contents here. A file that is missing, or a
+    URL that is not a local sibling, is left exactly as it was rather than
+    silently dropped.
+    """
+    import re                                                # noqa: PLC0415
+
+    def swap(m: re.Match, tag: str) -> str:
+        f = WEB / m.group(1)
+        if not f.exists():
+            return m.group(0)
+        return "<" + tag + ">\n" + f.read_text(encoding="utf-8") + "\n</" + tag + ">"
+
+    html = re.sub(r'<link[^>]+rel="stylesheet"[^>]+href="([^":/?]+[.]css)"[^>]*>',
+                  lambda m: swap(m, "style"), html)
+    html = re.sub(r'<script[^>]+src="([^":/?]+[.]js)"[^>]*></script>',
+                  lambda m: swap(m, "script"), html)
+    return html
+
+
 d = _data()
-html = PAGE.read_text(encoding="utf-8")
+html = _inline(PAGE.read_text(encoding="utf-8"))
 if d is not None:
-    # the page fetches data.json when served as a static file; inside the
-    # component iframe there is no such path, so hand it the object directly
-    html = html.replace(
-        'async function load(){',
-        "window.__DATA__ = " + json.dumps(d, separators=(',', ':')) + ";\nasync function load(){")
-    html = html.replace(
-        'const r = await fetch("data.json?" + Math.floor(Date.now()/60000));\n    if(!r.ok) throw new Error(r.status);\n    render(await r.json());',
-        'if(window.__DATA__){ render(window.__DATA__); return; }\n'
-        '    const r = await fetch("data.json?" + Math.floor(Date.now()/60000));\n'
-        '    if(!r.ok) throw new Error(r.status);\n    render(await r.json());')
+    # The page reads window.__DATA__ when it is there and fetches data.json when
+    # it is not, so the same file works as a static page and as a component. The
+    # host only has to define it before any script that renders runs.
+    blob = ("<script>window.__DATA__ = "
+            + json.dumps(d, separators=(",", ":")) + ";</script>")
+    if "</head>" in html:
+        html = html.replace("</head>", blob + "\n</head>", 1)
+    else:
+        html = blob + "\n" + html
 
 components.html(html, height=900, scrolling=True)
