@@ -56,6 +56,15 @@ NARRATION = {
         "the full grid attached. It's a client side implementation of the same worst "
         "case principle as Alpaca's universal spread rule for options margin, applied "
         "one step earlier."),
+    45: ("shield.png",
+        "Here is the desk deciding this afternoon, with nobody at the keyboard. The "
+        "jobs report lands tomorrow morning. The desk measured how close each "
+        "position's short strike sat to the market — not in percent, but in units of "
+        "the daily move the option market itself was pricing. Two S and P condors sat "
+        "inside one and a half of those moves. Two Nasdaq condors sat almost three "
+        "away. It closed the two a gap would reach, kept the two it would not, and "
+        "wrote the reason into the journal in plain language. A blanket flatten would "
+        "have paid the spread on four positions to protect two."),
     5: ("ablation.png",
         "We didn't just claim the design matters — we measured it, live. Four books "
         "run on identical inputs: the real agent; the same strategy with gates "
@@ -170,6 +179,78 @@ def ablation_frame() -> None:
     edge_shot(p, WORK / "ablation.png")
 
 
+def shield_frame() -> None:
+    """The journal lines from the tick that made today's call — nothing staged.
+
+    Drawn with PIL rather than headless Edge: on 2026-09-03 Edge's --screenshot
+    stopped producing files on this machine while --print-to-pdf kept working,
+    and a submission asset must not depend on a browser flag that can fail
+    silently the evening before a deadline.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    path = ROOT / "data" / "journal" / "desk.jsonl"
+    entries = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                entries.append(json.loads(line))
+    shield = [e for e in entries
+              if e["kind"] == "manage" and "event shield" in str(e["data"].get("reason", ""))]
+    if not shield:
+        sys.exit("no event-shield decision in the journal — nothing to show")
+    tick = shield[-1]["ts"][:16]
+    shown = [e for e in entries if e["kind"] == "manage" and e["ts"][:16] == tick][:8]
+
+    W, H = 1600, 900
+    BG, PANEL = (11, 15, 26), (13, 19, 34)
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+
+    def font(name, size):
+        for f in (name, "segoeui.ttf", "arial.ttf"):
+            try:
+                return ImageFont.truetype(f, size)
+            except OSError:
+                continue
+        return ImageFont.load_default()
+
+    f_kick, f_head, f_mono = font("segoeui.ttf", 21), font("segoeuib.ttf", 50), font("consola.ttf", 21)
+    d.text((90, 70), "THE JOURNAL, UNEDITED — ONE TICK, NOBODY AT THE KEYBOARD",
+           font=f_kick, fill=(127, 150, 201))
+    d.text((90, 112), "It closed what a gap would reach,", font=f_head, fill=(255, 255, 255))
+    d.text((90, 172), "and kept the rest", font=f_head, fill=(53, 224, 176))
+
+    top, pad = 268, 34
+    d.rounded_rectangle([90, top, W - 90, top + 46 * len(shown) + pad * 2], 14,
+                        fill=PANEL, outline=(46, 62, 104))
+    y = top + pad
+    for e in shown:
+        dd = e["data"]
+        act = dd["action"].upper()
+        col = (255, 143, 122) if act == "CLOSE" else (93, 107, 143)
+        x = 124
+        for text, colour in ((e["ts"][11:19], (93, 107, 143)),
+                             (f"{act:<6}", col),
+                             (dd["structure_id"][:8], (199, 210, 234)),
+                             (dd["reason"][:84], (169, 183, 214))):
+            d.text((x, y), text, font=f_mono, fill=colour)
+            x += d.textlength(text + " ", font=f_mono)
+        y += 46
+
+    # the measurement behind the call, so the frame argues instead of asserting
+    foot = top + 46 * len(shown) + pad * 2 + 54
+    d.text((90, foot), "THE MEASUREMENT, NOT AN OPINION", font=f_kick, fill=(127, 150, 201))
+    f_body = font("segoeui.ttf", 27)
+    for i, line in enumerate((
+            "σ = atm_iv / √252 = the daily move the option market itself is pricing: 0.74% today.",
+            "S&P condors sat 1.4σ and 1.6σ from their short calls. Nasdaq condors sat 2.8σ and 3.3σ.",
+            "Inside 2σ closes before a high-class release. A blanket flatten pays four spreads to protect two.")):
+        d.text((90, foot + 44 + i * 40), line, font=f_body, fill=(199, 210, 234))
+
+    img.save(WORK / "shield.png")
+
+
 def verify_frame() -> None:
     txt = (SUB / "verify_output.txt").read_text(encoding="utf-8")
     lines = [l for l in txt.splitlines() if l.strip()][:22]
@@ -195,7 +276,9 @@ def account_frame() -> None:
     data = json.loads((SUB / "account_snapshot.json").read_text())
     rows = "".join(
         f"<tr><td class='mono'>{p['symbol']}</td><td>{p['qty']}</td>"
-        f"<td>${p['avg']}</td><td style='color:#35e0b0'>+${p['upl']}</td></tr>"
+        f"<td>${p['avg']}</td>"
+        f"<td style='color:{'#35e0b0' if float(p['upl']) >= 0 else '#ff8f7a'}'>"
+        f"{'+' if float(p['upl']) >= 0 else '−'}${abs(float(p['upl'])):.0f}</td></tr>"
         for p in data["positions"])
     pnl = float(data["equity"]) - 100_000
     html = f"""<meta charset="utf-8"><style>{PAGE_CSS}
@@ -260,6 +343,7 @@ if __name__ == "__main__":
     print("slides rendered")
     ablation_frame()
     print("ablation frame rendered")
+    shield_frame()
     verify_frame()
     account_frame()
     print("live-data frames rendered")
