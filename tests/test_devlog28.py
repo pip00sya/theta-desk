@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from thetadesk import config as cfgmod
 from thetadesk.agents import llm
 from thetadesk.audit.journal import Journal
 from thetadesk.data import signals as sigmod
@@ -186,6 +187,13 @@ class Args:
 @pytest.fixture
 def scratch(tmp_path, monkeypatch):
     monkeypatch.setenv("THETADESK_DATA_DIR", str(tmp_path))
+    # DEVLOG #34: neutralise the REAL event calendar. Without this the
+    # entry-path tests here quietly depended on the wall-clock date: on
+    # 2026-09-03 every one of them ran inside the 24h NFP de-risk window,
+    # gate #17 refused all new risk, and the budget test failed with
+    # `assert 0.0 > 0` — the desk behaving exactly as designed. A test whose
+    # verdict changes with the calendar proves nothing on the day it matters.
+    monkeypatch.setattr(cfgmod.Config, "events", lambda self: [])
     import thetadesk.main as m
     return m, tmp_path
 
