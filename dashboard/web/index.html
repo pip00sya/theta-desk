@@ -46,6 +46,16 @@ header{border-bottom:1px solid var(--rule);padding:26px 0 0;margin-bottom:20px}
   line-height:1.05;display:block}
 .kpi .sub{font-size:11.5px;color:var(--soft);margin-top:5px;display:block}
 
+/* reconciliation strip: realized and marked are different kinds of number, so
+   the page shows the subtraction rather than asserting a total */
+.recon{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding:13px 16px;
+  border:1px solid var(--rule);border-top:0;background:var(--surface2)}
+.recon .eq{font-family:var(--mono);font-size:14.5px;color:var(--ink)}
+.recon .eq b{font-weight:500}
+.recon .eq span{color:var(--soft)}
+.recon .note{font-size:11.5px;color:var(--faint);max-width:64ch}
+.recon.bad{border-color:var(--loss)}
+
 /* ── layout ───────────────────────────────────────────────── */
 .grid{display:grid;grid-template-columns:238px 1fr 268px;gap:18px;margin-top:18px}
 @media(max-width:1240px){.grid{grid-template-columns:1fr}}
@@ -151,6 +161,7 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--rule);
     <div class="live"><span class="dot" id="dot"></span><span id="livetxt">loading…</span></div>
   </div>
   <div class="kpis" id="kpis"></div>
+  <div class="recon" id="recon"></div>
 </header>
 
 <div class="grid">
@@ -249,6 +260,22 @@ function render(d){
       <span class="val" style="color:var(--gate)">${d.refusals.total}</span>
       <span class="sub">entries a rule stopped this week</span></div>`,
   ].join("");
+
+  /* ---- reconciliation: the arithmetic, not a claim ---- */
+  if(b){
+    const closes = Math.abs((100000 + bk.realized + bk.unrealized) - b.equity);
+    $("#recon").className = "recon" + (closes > 5 ? " bad" : "");
+    $("#recon").innerHTML = closes > 5
+      ? `<span class="eq"><b>${plain(b.equity)}</b> <span>vs</span> <b>${plain(100000+bk.realized+bk.unrealized)}</b>
+         <span>— these do not close;</span> <b class="down">${money(b.equity-(100000+bk.realized+bk.unrealized))}</b> <span>unexplained</span></span>
+         <span class="note">The broker moved after the last tick, so the marked book lags. The gap is
+         printed rather than hidden; it closes at the next mark.</span>`
+      : `<span class="eq"><b>${plain(b.equity)}</b> <span>=</span> ${plain(100000)}
+         <span>start</span> <b class="${cls(bk.realized)}">${money(bk.realized)}</b> <span>realized</span>
+         <b class="${cls(bk.unrealized)}">${money(bk.unrealized)}</b> <span>open mark</span></span>
+         <span class="note">Realized and marked are different kinds of number and are never added
+         without showing the subtraction. Equity is read from the account, not computed here.</span>`;
+  }
 
   /* ---- signals ---- */
   const s = d.signals, pct = v => v==null ? "—" : (v*100).toFixed(2)+"%";
