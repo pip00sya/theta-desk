@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import traceback
@@ -458,6 +459,9 @@ def cmd_tick(args) -> int:
                           minutes_to_close=mins_to_close,
                           realize_window_min=cfg["management"].get("realize_window_min", 60),
                           regime=regime if dq.mode == "full" else None,
+                          spots=spot_map,
+                          implied_daily=(signals.atm_iv / math.sqrt(252)) if dq.mode == "full" else None,
+                          event_shield_sigmas=float(cfg["events"].get("event_shield_sigmas", 0.0)),
                           peaks=peaks)
     for sid, pk in peaks.items():
         store.set_kv(f"peak_frac:{sid}", f"{pk:.4f}")

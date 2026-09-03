@@ -122,6 +122,13 @@ events:
   # derisk_lock_profit_frac. Forced liquidation at market prices before a
   # print is a strategy change, not a config value — deliberately not added.
   derisk_lock_profit_frac: 0.15   # inside the window: close anything >= +15%
+  # DEVLOG #34: event proximity shield. Inside a high-class window, close a
+  # core structure whose nearest SHORT strike sits closer to spot than this
+  # many expected daily moves (sigma = atm_iv / sqrt(252), the market's own
+  # number, not ours). 2.0 = survive a two-sigma event day. Locking winners
+  # alone left the losers exposed, which is backwards: a gap hurts the strikes
+  # that are near, not the ones that are green.
+  event_shield_sigmas: 2.0
   calendar_file: events.yaml
 
 regime:

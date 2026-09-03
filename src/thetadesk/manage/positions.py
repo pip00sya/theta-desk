@@ -75,7 +75,10 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
                 minutes_to_close: float | None = None,
                 realize_window_min: float | None = None,
                 regime: str | None = None,
-                peaks: dict[str, float] | None = None) -> list[ManageAction]:
+                peaks: dict[str, float] | None = None,
+                spots: dict[str, float] | None = None,
+                implied_daily: float | None = None,
+                event_shield_sigmas: float = 0.0) -> list[ManageAction]:
     """DEVLOG #15: exits exist for BOTH directions of premium.
       credit structures: 35% profit target, 2x credit stop
       debit structures:  +60% of debit target (vol spikes mean-revert),
@@ -166,6 +169,30 @@ def review_book(open_structures: list[dict], chain: dict[str, dict],
                                             f"trailing stop: peaked at +{peak:.0%}, now +{frac:.0%} "
                                             f"(gave back {1 - frac / peak:.0%})", mtm))
                 continue
+
+        # DEVLOG #34: event proximity shield. Inside a high-class event window
+        # the old rule only locked WINNERS (>= derisk_lock_frac) and left the
+        # losers — exactly the structures a gap would hurt — untouched. What
+        # matters before a release is not profit, it is how close the SHORT
+        # strike sits to spot in units of the move the market itself expects:
+        # sigma = atm_iv / sqrt(252). On 2026-09-03 with NFP 19h away the two
+        # SPY condors sat 1.6 and 1.8 sigma from their short calls while the
+        # two QQQ ones sat 2.8 and 3.3 — a blanket flatten would have paid the
+        # spread on all four to protect two. Long premium and the hedge have no
+        # short strike and are never touched.
+        if (derisk_mode and event_shield_sigmas > 0 and spots and implied_daily
+                and s.get("sleeve", "core") == "core"):
+            shorts = [l for l in legs if l.qty < 0]
+            if shorts:
+                spot = spots.get(shorts[0].contract.underlying)
+                if spot:
+                    dist = min(abs(l.contract.strike - spot) / spot for l in shorts)
+                    if dist < event_shield_sigmas * implied_daily:
+                        actions.append(ManageAction(
+                            s["structure_id"], "close",
+                            f"event shield: short strike {dist / implied_daily:.1f}σ from spot "
+                            f"(< {event_shield_sigmas:g}σ) before a high-class release", mtm))
+                        continue
 
         if derisk_mode and frac >= derisk_lock_frac:
             actions.append(ManageAction(s["structure_id"], "close",

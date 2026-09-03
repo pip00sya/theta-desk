@@ -446,3 +446,61 @@ def test_a_second_writer_cannot_fork_the_chain(tmp_path):
     assert ok, why
     kinds = [e["kind"] for e in Journal(tmp_path).read_all()]
     assert kinds == ["tick_start", "broker_check", "desk"], kinds
+
+
+# ---- DEVLOG #34: event proximity shield ------------------------------------
+
+def _condor(sid, short_call, short_put, spot_sym="SPY"):
+    def leg(strike, right, qty):
+        return {"symbol": f"{spot_sym}260918{right}{int(strike * 1000):08d}", "qty": qty,
+                "entry_price": 1.0}
+    return {"structure_id": sid, "kind": "iron_condor", "sleeve": "core", "qty": 1,
+            "status": "open", "net_credit": 1.90,
+            "legs_json": json.dumps([leg(short_put, "P", -1), leg(short_put - 10, "P", 1),
+                                     leg(short_call, "C", -1), leg(short_call + 10, "C", 1)])}
+
+
+def _flat_chain(*structs):
+    ch = {}
+    for s in structs:
+        for l in json.loads(s["legs_json"]):
+            ch[l["symbol"]] = {"latestQuote": {"bp": 0.98, "ap": 1.02}}
+    return ch
+
+
+def test_event_shield_closes_only_the_structures_a_gap_would_reach():
+    """2026-09-03, NFP 19h out: two SPY condors sat 1.6 and 1.8 sigma from
+    their short calls, two QQQ condors 2.8 and 3.3. The old rule locked
+    WINNERS and left the near strikes alone — backwards. The shield closes by
+    distance-to-spot in the market's own implied daily move, nothing else."""
+    from thetadesk.manage.positions import review_book
+    near = _condor("near", short_call=782.0, short_put=741.0)          # 1.18% away
+    far = _condor("far", short_call=800.0, short_put=741.0)            # 3.5% away
+    mgmt = {"profit_target_frac": 0.35, "debit_profit_target_frac": 0.60,
+            "realize_min_frac": 0.25, "structure_stop_credit_mult": 2.0, "time_stop_dte": 7}
+    kw = dict(derisk_mode=True, spots={"SPY": 772.86}, implied_daily=0.0074,
+              event_shield_sigmas=2.0)
+    acts = {a.structure_id: a for a in review_book(
+        [near, far], _flat_chain(near, far), mgmt, NOW, 0, "2026-09-18", **kw)}
+    assert acts["near"].action == "close" and "event shield" in acts["near"].reason
+    assert acts["far"].action == "hold", acts["far"].reason
+    # outside an event window the shield is silent
+    kw["derisk_mode"] = False
+    acts2 = {a.structure_id: a for a in review_book(
+        [near, far], _flat_chain(near, far), mgmt, NOW, 0, "2026-09-18", **kw)}
+    assert all(a.action == "hold" for a in acts2.values())
+
+
+def test_event_shield_never_touches_the_hedge_or_long_premium():
+    """The shield is about SHORT strikes. A bought put has none: its loss is
+    already paid and capped, and closing it before a release would remove the
+    very thing that pays in a gap."""
+    from thetadesk.manage.positions import review_book
+    hedge = _put(sleeve="hedge", sid="h1")
+    long_prem = _put(sleeve="core", sid="lp")
+    mgmt = {"profit_target_frac": 0.35, "debit_profit_target_frac": 0.60,
+            "realize_min_frac": 0.25, "structure_stop_credit_mult": 2.0, "time_stop_dte": 7}
+    acts = review_book([hedge, long_prem], _chain(3.70), mgmt, NOW, 0, "2026-09-18",
+                       derisk_mode=True, spots={"SPY": 751.0}, implied_daily=0.0074,
+                       event_shield_sigmas=2.0)
+    assert all("event shield" not in a.reason for a in acts), [a.reason for a in acts]
