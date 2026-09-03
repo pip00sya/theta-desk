@@ -9,7 +9,7 @@ Team Qwertys — [Alpaca AI Trading Agents Hackathon](https://lablab.ai/ai-hacka
 <a href="https://theta-desk.streamlit.app"><b>▶ Dashboard</b></a> (daily snapshot) ·
 <a href="https://theta-desk.streamlit.app/?judge=1">Judge mode</a> ·
 <a href="WRITEUP.md">One-page write-up</a> ·
-<a href="DEVLOG.md">DEVLOG — 28 documented self-corrections</a> ·
+<a href="DEVLOG.md">DEVLOG — 33 documented self-corrections</a> ·
 <a href="API-FEEDBACK.md">Feedback for the Alpaca team</a>
 </p>
 

@@ -78,8 +78,8 @@ with tab_eq:
     note("Curves on identical inputs: the real book (broker equity), the same strategy "
          "without risk gates (unmanaged, marked at mid) and a naive news-driven baseline. "
          "Shadow books do not take profits, so this is a bound, not a like-for-like P&L. "
-         "The hedge sleeve has not fired yet (the book has been long premium), so the "
-         "'no hedge' curve is hidden while it is identical to the real one.")
+         "The hedge sleeve fired on Sep 2 (SPY 712 put), so the 'no hedge' curve now "
+         "diverges from the real one; it is hidden only while identical.")
     import pandas as pd
     all_marks = {b: store.marks(b) for b in ("real", "shadow_nogates", "shadow_nohedge", "baseline_naive")}
     quarantined = sum(1 for ms in all_marks.values() for m in ms if _quality(m) != "ok")
@@ -117,8 +117,8 @@ with tab_eq:
         with_greeks = [m for m in real_marks if m["theta"] or m["delta"] or m["vega"]]
         if with_greeks:
             st.subheader("Book greeks (dollar terms)")
-            note("Net desk exposures from broker-published greeks: delta$ per $1 "
-                 "SPY move, theta$ per day, vega$ per vol point. This is the "
+            note("Net desk exposures from broker-published greeks: dollar delta per "
+                 "1-point SPY move, dollar theta per day, dollar vega per vol point. This is the "
                  "attribution language: you can see WHY the curve moved.")
             gdf = pd.DataFrame(
                 {"delta $/1pt": [m["delta"] for m in with_greeks],
