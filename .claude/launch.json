@@ -4,8 +4,39 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "streamlit",
-      "runtimeArgs": ["run", "dashboard/app.py", "--server.port", "8501", "--server.headless", "true"],
+      "runtimeArgs": [
+        "run",
+        "dashboard/app.py",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true"
+      ],
       "port": 8501
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8777",
+        "--directory",
+        "submission/site"
+      ],
+      "port": 8777
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8778",
+        "--directory",
+        "dashboard/web"
+      ],
+      "port": 8778
     }
   ]
 }

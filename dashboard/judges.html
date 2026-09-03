@@ -1,0 +1,615 @@
+<title>THETA DESK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+  :root {
+    --ground: #0B0B0C;
+    --surface: #141415;
+    --surface-2: #1B1B1D;
+    --ink: #F2F2F0;
+    --ink-soft: #8C8C86;
+    --ink-faint: #5E5E5A;
+    --gate: #FFD400;
+    --gate-dim: #6B5A08;
+    --gain: #2FD98F;
+    --loss: #FF5A47;
+    --rule: #26262A;
+
+    --sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+    --serif: "Source Serif 4", Georgia, serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+  .narrow { max-width: 720px; }
+
+  /* ---------- hazard rule: the visual signature ---------- */
+  .hazard {
+    height: 10px;
+    background: repeating-linear-gradient(
+      -45deg, var(--gate) 0 14px, var(--ground) 14px 28px);
+    opacity: .9;
+  }
+
+  /* ---------- masthead ---------- */
+  header {
+    padding: 72px 0 56px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--gate);
+    margin: 0 0 26px;
+  }
+  h1 {
+    font-size: clamp(38px, 6.6vw, 76px);
+    font-weight: 800;
+    line-height: .98;
+    letter-spacing: -.035em;
+    margin: 0 0 26px;
+    max-width: 15ch;
+    text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--gate); }
+  .lede {
+    font-family: var(--serif);
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0 0 32px;
+  }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  .links { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    text-decoration: none;
+    padding: 11px 18px;
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    background: var(--surface);
+    transition: border-color .15s, color .15s;
+  }
+  .btn:hover, .btn:focus-visible { border-color: var(--gate); color: var(--gate); outline: none; }
+  .btn.primary { background: var(--gate); color: #0B0B0C; border-color: var(--gate); font-weight: 600; }
+  .btn.primary:hover, .btn.primary:focus-visible { background: #FFE45C; color: #0B0B0C; }
+
+  /* ---------- gate headings ---------- */
+  .gate { padding: 62px 0 0; }
+  .gate-head {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 20px;
+    align-items: start;
+    margin-bottom: 30px;
+  }
+  .gate-no {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    color: var(--gate);
+    border-top: 2px solid var(--gate);
+    padding-top: 9px;
+  }
+  h2 {
+    font-size: clamp(25px, 3.4vw, 36px);
+    font-weight: 700;
+    letter-spacing: -.022em;
+    line-height: 1.12;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .gate-head p {
+    grid-column: 2;
+    margin: 12px 0 0;
+    color: var(--ink-soft);
+    max-width: 62ch;
+  }
+  .gate-head p b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- stat strip ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .stat { padding: 22px 24px; border-right: 1px solid var(--rule); }
+  .stat:last-child { border-right: none; }
+  .stat .k {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 10px;
+  }
+  .stat .v {
+    font-family: var(--mono);
+    font-size: 31px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .stat .n { font-size: 13px; color: var(--ink-faint); margin-top: 9px; font-family: var(--sans); }
+  .up { color: var(--gain); }
+  .down { color: var(--loss); }
+  .yel { color: var(--gate); }
+
+  /* ---------- generic panels ---------- */
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+  }
+  .panel {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 22px 24px;
+  }
+  .panel h3 {
+    font-size: 12px;
+    font-family: var(--mono);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--gate);
+    margin: 0 0 12px;
+    font-weight: 500;
+  }
+  .panel p { margin: 0; font-size: 15.5px; color: var(--ink-soft); }
+  .panel p + p { margin-top: 11px; }
+  .panel b { color: var(--ink); font-weight: 600; }
+  .panel .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------- chart ---------- */
+  figure { margin: 26px 0 0; }
+  .chart {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 26px 22px 16px;
+    overflow-x: auto;
+  }
+  .chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+  figcaption {
+    font-size: 14px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    max-width: 74ch;
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---------- tables ---------- */
+  .tbl-wrap { overflow-x: auto; margin-top: 24px; border: 1px solid var(--rule); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 520px; }
+  th, td { text-align: left; padding: 13px 20px; border-bottom: 1px solid var(--rule); }
+  th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface); }
+
+  /* ---------- terminal block ---------- */
+  .term {
+    margin-top: 24px;
+    border: 1px solid var(--rule);
+    background: #08080A;
+    padding: 20px 22px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.85;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--ink-soft);
+  }
+  .term .ok { color: var(--gain); }
+  .term .cmd { color: var(--gate); }
+  .term .dim { color: var(--ink-faint); }
+
+  /* ---------- honesty list ---------- */
+  ul.plain { list-style: none; padding: 0; margin: 24px 0 0; }
+  ul.plain li {
+    border-top: 1px solid var(--rule);
+    padding: 18px 0 18px 0;
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 16px;
+  }
+  ul.plain li::before {
+    content: "—";
+    font-family: var(--mono);
+    color: var(--gate);
+  }
+  ul.plain b { display: block; margin-bottom: 5px; }
+  ul.plain span { color: var(--ink-soft); font-size: 15.5px; }
+
+  footer {
+    margin-top: 74px;
+    border-top: 1px solid var(--rule);
+    padding: 30px 0 60px;
+    font-size: 13px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    line-height: 1.9;
+  }
+  footer a { color: var(--ink-soft); }
+
+  @media (max-width: 620px) {
+    body { font-size: 16px; }
+    .wrap { padding: 0 18px; }
+    header { padding: 46px 0 38px; }
+    .gate { padding-top: 46px; }
+    .gate-head { grid-template-columns: 1fr; gap: 10px; }
+    .gate-head p { grid-column: 1; }
+    .stat { border-right: none; border-bottom: 1px solid var(--rule); }
+  }
+</style>
+
+<div class="hazard"></div>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Alpaca AI Trading Agents Hackathon · paper account PA39C10YAMYQ</p>
+    <h1>Four books. Same ticks. One of them <em>without our rules.</em></h1>
+    <p class="lede">THETA DESK prices the volatility risk premium instead of guessing direction.
+    Beside the real book it marks three counterfactual books on identical inputs, so the value of a
+    risk gate is <b>measured, not asserted</b>. Every figure on this page recomputes from a fresh
+    clone of the repository, with no credentials, in under a minute.</p>
+    <div class="links">
+      <a class="btn primary" href="https://github.com/pip00sya/theta-desk">Repository</a>
+      <a class="btn" href="https://theta-desk.streamlit.app/?judge=1">Live dashboard</a>
+      <a class="btn" href="https://github.com/pip00sya/theta-desk/blob/master/WRITEUP.md">One-page write-up</a>
+      <a class="btn" href="https://github.com/pip00sya/theta-desk/blob/master/DEVLOG.md">DEVLOG · 36 entries</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 01<br>THESIS</div>
+        <div>
+          <h2>Over five sessions, direction is a coin flip. The volatility risk premium is not.</h2>
+          <p>An option's price is dominated by the movement the market <b>expects</b>. That expectation
+          runs persistently above the movement that actually <b>arrives</b>, because portfolios buy
+          insurance whether or not it is cheap. Capturing that gap requires no forecast — only a
+          measurement, and the discipline to stand down when the measurement says the premium is thin.</p>
+        </div>
+      </div>
+      <div class="cols">
+        <div class="panel">
+          <h3>Rich volatility</h3>
+          <p>Implied above realised: the desk <b>sells</b> defined-risk iron condors and collects time
+          decay. Wings are bought at construction, so the worst case is fixed before the order exists.</p>
+        </div>
+        <div class="panel">
+          <h3>Cheap volatility</h3>
+          <p>Realised above implied: the desk <b>buys</b> convexity at micro size. On 28–31 August it
+          bought four SPY puts for <span class="mono">$1,496</span>; three closed at
+          <span class="mono up">+64%, +66%, +70%</span> when the market slid.</p>
+        </div>
+        <div class="panel">
+          <h3>Neither</h3>
+          <p>The score sits between the thresholds, or the data-quality gate flags the inputs: the desk
+          <b>abstains and journals why</b>. 44 entries were refused this week, each with the gate that
+          killed it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 02<br>THE NUMBER</div>
+        <div>
+          <h2>A small, explained P&amp;L on a book whose worst case never left 3.4% of equity.</h2>
+          <p>Five live sessions, twelve entries, six closed round trips. We state the realised figure
+          separately from the marked one, because <b>a book marked at the midpoint reports money it
+          cannot collect</b>.</p>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="k">Account equity</div>
+          <div class="v">$100,429</div>
+          <div class="n">from a $100,000 start</div>
+        </div>
+        <div class="stat">
+          <div class="k">Realised, banked</div>
+          <div class="v up">+$598</div>
+          <div class="n">6 closed structures, cannot be lost</div>
+        </div>
+        <div class="stat">
+          <div class="k">Open, marked</div>
+          <div class="v down">−$169</div>
+          <div class="n">3 structures live to Sep 18</div>
+        </div>
+        <div class="stat">
+          <div class="k">Worst case ever held</div>
+          <div class="v yel">3.4%</div>
+          <div class="n">of equity, gate-capped at 8%</div>
+        </div>
+      </div>
+      <figcaption style="margin-top:16px">Honest framing: five sessions is not a sample. We claim a
+      risk process that behaved as specified and a P&amp;L we can account for line by line — not an edge.</figcaption>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 03<br>COUNTERFACTUAL</div>
+        <div>
+          <h2>We didn't claim the gates matter. We ran the book without them.</h2>
+          <p>Every tick marks four books on the same inputs: the real desk, the same strategy with the
+          risk gates ignored, the book minus its hedge sleeve, and a naive
+          <b>"read a headline, buy an option"</b> control. One table, four equity curves, no narration required.</p>
+        </div>
+      </div>
+      <figure>
+        <div class="chart">
+          <svg viewBox="0 0 900 330" role="img" aria-label="Mark-to-model P&L of four parallel books on identical inputs: the real desk +461 dollars, the book minus its hedge +500, a naive baseline -63, and the same strategy with gates ignored -1715">
+            <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#5E5E5A">
+              <line x1="150" y1="38" x2="880" y2="38" stroke="#26262A" stroke-dasharray="2 5"/><text x="142" y="42" text-anchor="end">+$500</text>
+              <line x1="150" y1="90" x2="880" y2="90" stroke="#3A3A3E"/><text x="142" y="94" text-anchor="end">$0</text>
+              <line x1="150" y1="142" x2="880" y2="142" stroke="#26262A" stroke-dasharray="2 5"/><text x="142" y="146" text-anchor="end">−$500</text>
+              <line x1="150" y1="194" x2="880" y2="194" stroke="#26262A" stroke-dasharray="2 5"/><text x="142" y="198" text-anchor="end">−$1,000</text>
+              <line x1="150" y1="246" x2="880" y2="246" stroke="#26262A" stroke-dasharray="2 5"/><text x="142" y="250" text-anchor="end">−$1,500</text>
+            </g>
+
+            <rect x="172" y="42" width="128" height="48" fill="#2FD98F"/>
+            <text x="236" y="32" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" fill="#2FD98F">+$461</text>
+
+            <rect x="352" y="38" width="128" height="52" fill="#1F7A55"/>
+            <text x="416" y="28" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" fill="#4FCF9B">+$500</text>
+
+            <rect x="532" y="90" width="128" height="7" fill="#FF5A47"/>
+            <text x="596" y="112" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" fill="#FF5A47">−$63</text>
+
+            <rect x="712" y="90" width="128" height="178" fill="#FF5A47" opacity=".55"/>
+            <text x="776" y="286" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" fill="#FF5A47">−$1,715</text>
+
+            <g text-anchor="middle" font-family="Archivo, sans-serif" font-size="13" fill="#F2F2F0">
+              <text x="236" y="312">the real desk</text>
+              <text x="416" y="312">minus the hedge</text>
+              <text x="596" y="312">naive baseline</text>
+              <text x="776" y="312">gates ignored</text>
+            </g>
+            <g text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#5E5E5A">
+              <text x="236" y="328">18 gates · managed</text>
+              <text x="416" y="328">tail cost $39</text>
+              <text x="596" y="328">headline → option</text>
+              <text x="776" y="328">every candidate kept</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>The caveat, stated with the number:</b> the shadow books record every candidate
+        and never close a winner, so <b>−$1,715 bounds the cost of refusing nothing</b> — it does not
+        price the gates. The like-for-like fact is the refusal ledger below.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 04<br>REFUSALS</div>
+        <div>
+          <h2>Forty-four entries were refused. Each one names the rule that killed it.</h2>
+          <p>The desk journals a refusal exactly like a fill: gate, reason, and the full payoff grid that
+          produced the verdict. This is the like-for-like measurement — no counterfactual assumptions,
+          just what the rules actually stopped.</p>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Gate</th><th>Refusals</th><th>What it protects against</th></tr></thead>
+          <tbody>
+            <tr><td class="n yel">g5g6_liquidity</td><td class="n">16</td><td>relative spread above 8% — paying the market maker more than the edge is worth</td></tr>
+            <tr><td class="n yel">g17_event_derisk</td><td class="n">14</td><td>a high-class macro release inside 24 hours — no new risk into a jobs report</td></tr>
+            <tr><td class="n yel">g9_daily_budget</td><td class="n">9</td><td>2.5% of equity of new risk per day, so the whole book is never bought at one price</td></tr>
+            <tr><td class="n yel">g10_time_window</td><td class="n">5</td><td>the first and last 15 minutes of the session, where quotes are least trustworthy</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cols">
+        <div class="panel">
+          <h3>One refusal in the desk's own words</h3>
+          <p class="mono" style="font-size:13.5px;color:var(--ink)">event shield: short strike 1.4σ from
+          spot (&lt; 2σ) before a high-class release</p>
+          <p>On 3 September, nineteen hours before the payrolls print, the desk measured how close each
+          short strike sat to spot <b>in units of the daily move the option market itself was pricing</b>
+          — 0.74% that day. Two SPY condors sat inside two of those moves and were closed. Two QQQ
+          condors sat at 2.8σ and 3.3σ and were kept. A blanket flatten would have paid four spreads to
+          protect two.</p>
+        </div>
+        <div class="panel">
+          <h3>Nobody was at the keyboard</h3>
+          <p>That rule is in the code, not in a prompt. It ran on its own, wrote its reason into the
+          journal in plain language, and will run again before the CPI print on 10 September and the
+          FOMC statement on 16 September.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 05<br>PROOF</div>
+        <div>
+          <h2>Clone it. Run four commands. Every number on this page comes back.</h2>
+          <p>No API keys, no installation, no account. The journal is hash-chained, every tick stores the
+          snapshot it decided from, and the write-up's claims are recomputed from that journal rather
+          than typed by a human.</p>
+        </div>
+      </div>
+      <div class="term"><span class="dim">$</span> <span class="cmd">git clone https://github.com/pip00sya/theta-desk && cd theta-desk</span>
+
+<span class="dim">$</span> <span class="cmd">PYTHONPATH=src python -m pytest tests -q</span>
+<span class="ok">127 passed</span>
+
+<span class="dim">$</span> <span class="cmd">PYTHONPATH=src python -m thetadesk.main verify-journal</span>
+<span class="ok">OK: chain intact (1,171 entries)</span>
+
+<span class="dim">$</span> <span class="cmd">PYTHONPATH=src python tools/replay.py</span>
+<span class="ok">replay: 91/91 snapshots reproduce, 0 divergence(s)</span>
+
+<span class="dim">$</span> <span class="cmd">PYTHONPATH=src python tools/reconcile.py</span>
+<span class="ok">20/20 claims reproduced - 0 mismatches - no credentials required</span></div>
+      <div class="cols">
+        <div class="panel">
+          <h3>Hash chain</h3>
+          <p>Every entry carries the SHA-256 of the one before it. Edit a byte of history and
+          verification fails. The git history is the external anchor.</p>
+        </div>
+        <div class="panel">
+          <h3>Bit-for-bit replay</h3>
+          <p>Each tick writes the full chain snapshot it decided from. <b>91 of 91</b> replay to the same
+          signal, the same regime and the same candidate identifier.</p>
+        </div>
+        <div class="panel">
+          <h3>Broker as ground truth</h3>
+          <p>An independent pass compares the store against Alpaca's fills. Latest run:
+          <b class="mono">store $598 · broker $598 · 0 differences</b> across all structures.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 06<br>THE MACHINE</div>
+        <div>
+          <h2>Language models decide whether it's wise. Code decides whether it's allowed.</h2>
+          <p>One cycle, every fifteen minutes of the session. Four model roles argue and may shrink or
+          veto. <b>None of them can loosen a rule, pick a strike, or size a position.</b></p>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Stage</th><th>Who</th><th>Authority</th></tr></thead>
+          <tbody>
+            <tr><td>Signal</td><td class="n">deterministic</td><td>ATM implied vs 20-day realised → a clipped score. No model touches it.</td></tr>
+            <tr><td>Data quality</td><td class="n">deterministic</td><td>quote, spot-vs-close, bar freshness, IV bounds → full / mark-only / skip</td></tr>
+            <tr><td>Desk meeting</td><td class="n yel">4 LLM roles</td><td>Vol Analyst and Risk Officer on Claude, a blind Second Opinion on Mistral via Featherless, a News Vetoer on Qwen. Cross-provider, so disagreement is real. <b>May halve size or veto. May not loosen anything.</b></td></tr>
+            <tr><td>Selector</td><td class="n">deterministic</td><td>picks the structure and delta-targets the strikes, least-exposed underlying first</td></tr>
+            <tr><td>18 rules</td><td class="n yel">deterministic</td><td>the central one reprices the <b>entire book plus the candidate</b> over a ±20% grid at the judging horizon, base and stressed vol. Breach the budget and the order is never sent.</td></tr>
+            <tr><td>Execution</td><td class="n">Alpaca CLI</td><td>one atomic multi-leg limit order, signed net price, idempotent client order id, REST fallback journalled</td></tr>
+            <tr><td>Management</td><td class="n">deterministic</td><td>profit target, structure stop, time stop, trailing stop, regime exit, event shield</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 07</div>
+        <div>
+          <h2>What we know is wrong with this.</h2>
+          <p>A page that lists only strengths is a page that has not been tested. All five are measured,
+          in the repository, and none of them were softened after we saw the numbers.</p>
+        </div>
+      </div>
+      <ul class="plain">
+        <li><div><b>Five sessions is not a sample.</b><span>+0.43% is inside the noise band of any
+        strategy this size. We claim a process that behaved as specified, not an edge that has been
+        demonstrated.</span></div></li>
+        <li><div><b>The ablation is a bound, not a comparison.</b><span>The shadow books never take a
+        profit, so −$1,715 is the cost of refusing nothing, not the price of our gates. We publish the
+        caveat in the same sentence as the number, on the dashboard and here.</span></div></li>
+        <li><div><b>Paper fills flatter us.</b><span>No market impact, no queue position. A mid-priced
+        four-leg limit filled in about fifteen minutes all week; live, some of those fills do not
+        happen.</span></div></li>
+        <li><div><b>Two underlyings, not three.</b><span>IWM is in the universe and is offered a
+        candidate every tick, but a 10-point wing on a $295 fund cannot clear the $1.80 credit floor.
+        The rotation is SPY and QQQ in practice, and their correlation is about 0.9.</span></div></li>
+        <li><div><b>The desk's most expensive bug was its own.</b><span>On 1 September a put was marked
+        against the price we <em>expected</em> to pay, 3.74, instead of the 3.66 it filled at. That read
+        59.2% against a 60% exit, so it was held, and $208 of profit evaporated overnight. Found by
+        replaying our own stored snapshot, fixed, and pinned with a regression test named after it.</span></div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="gate">
+    <div class="wrap">
+      <div class="gate-head">
+        <div class="gate-no">GATE 08<br>ALPACA</div>
+        <div>
+          <h2>Real mechanics, not a wrapper.</h2>
+          <p>The failure points on Alpaca's options stack are where the engineering actually lives.
+          Each of these cost us a session to find and is documented with its fix.</p>
+        </div>
+      </div>
+      <div class="cols">
+        <div class="panel">
+          <h3>Signed multi-leg limits</h3>
+          <p>A four-leg <span class="mono">mleg</span> credit is a <b>negative</b> limit price. An
+          <span class="mono">abs()</span> once turned "collect at least 3.40" into "pay at most 3.40" —
+          caught by a weekend acceptance test, before it could fill. Feedback written for Alpaca.</p>
+        </div>
+        <div class="panel">
+          <h3>Fills are the truth</h3>
+          <p>An order is <span class="mono">pending</span> until the broker says filled, and the legs are
+          then repriced to the actual fills. The bug above existed because that step did not.</p>
+        </div>
+        <div class="panel">
+          <h3>Two writers, one chain</h3>
+          <p>A tool run by hand during a live tick forked the hash chain — and auto-publish
+          <b>refused to ship the session</b>. Appends now take an OS lock and re-read the tail from the
+          file. The fork, its cause and its repair are all in the same journal.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    Team Qwertys · Alpaca paper account PA39C10YAMYQ · built and operated end-to-end by Claude<br>
+    <a href="https://github.com/pip00sya/theta-desk">github.com/pip00sya/theta-desk</a> · MIT ·
+    36 documented self-corrections · 127 tests<br>
+    Paper trading simulation only. Hypothetical results, no real funds, not investment advice.
+    Options involve substantial risk — see Characteristics and Risks of Standardized Options.
+  </div>
+</footer>
+
+<div class="hazard"></div>

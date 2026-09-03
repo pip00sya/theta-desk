@@ -14,6 +14,12 @@ $env:PYTHONPATH = "$repo\src"
 python -m thetadesk.main verify-journal
 if ($LASTEXITCODE -ne 0) { Write-Host "publish: hash chain does not verify - refusing"; exit 1 }
 
+# regenerate the dashboard's single source of truth. Every figure the page shows
+# comes from this file; nothing is computed in the page. Two pages of this
+# project therefore cannot disagree, which is how the competition's P&L leader
+# ended up publishing 13 trades on one page and 11 on another.
+python tools/site_data.py --out dashboard/web/data.json | Out-Null
+
 # refresh the INDEPENDENT comparison against the broker's fills first, so the
 # claims block quotes this session and not the last time anyone ran it by hand
 # (claim 10 read $764 while the store read $785 — the desk's own close of the
@@ -35,7 +41,7 @@ python tools/reconcile.py 2>&1 | Select-Object -Last 2 | Out-File -Append -Encod
 # file copy: a plain copy taken mid-transaction can be torn)
 python -c "import sqlite3; s=sqlite3.connect('data/thetadesk.sqlite'); d=sqlite3.connect('dashboard/state.sqlite'); s.backup(d); d.close(); s.close()"
 
-git add data/journal data/snapshots data/notes dashboard/state.sqlite WRITEUP.md submission/verify_output.txt DEVLOG.md
+git add data/journal data/snapshots data/notes dashboard/state.sqlite dashboard/web/data.json WRITEUP.md submission/verify_output.txt DEVLOG.md
 git diff --cached --quiet
 if ($LASTEXITCODE -eq 0) { Write-Host "publish: nothing new"; exit 0 }
 $session = (Get-Date).ToUniversalTime().AddHours(-4).ToString('yyyy-MM-dd')
