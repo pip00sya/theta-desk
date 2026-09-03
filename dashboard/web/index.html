@@ -246,7 +246,7 @@ function render(d){
   $("#kpis").innerHTML = [
     b ? `<div class="kpi"><span class="lab">Account equity · broker</span>
         <span class="val">${plain(b.equity)}</span>
-        <span class="sub">Alpaca, ${b.asof_utc.slice(11,16)}Z · authoritative</span></div>` : "",
+        <span class="sub">Alpaca, ${b.asof_utc.slice(11,16)}Z · ${d.broker_stale?"as published":"authoritative"}</span></div>` : "",
     `<div class="kpi"><span class="lab">Book P&L · marked</span>
       <span class="val ${cls(bk.pnl)}">${money(bk.pnl)}</span>
       <span class="sub">at the ${(bk.marked_at||"").slice(11,16)}Z tick · ${bk.pnl_pct>=0?"+":""}${bk.pnl_pct.toFixed(2)}%</span></div>`,
@@ -262,6 +262,7 @@ function render(d){
   ].join("");
 
   /* ---- reconciliation: the arithmetic, not a claim ---- */
+  $("#recon").hidden = !b;
   if(b){
     const closes = Math.abs((100000 + bk.realized + bk.unrealized) - b.equity);
     $("#recon").className = "recon" + (closes > 5 ? " bad" : "");

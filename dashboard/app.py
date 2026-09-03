@@ -41,15 +41,23 @@ def _data() -> dict | None:
     On Streamlit Cloud there is no live store and no credentials, so the commit
     ships data.json and this just reads it. Locally it recomputes, so the page
     is current the moment a tick lands."""
+    committed = None
+    try:
+        committed = json.loads(DATA.read_text(encoding="utf-8"))
+    except Exception:
+        pass
     try:
         sys.path.insert(0, str(ROOT / "tools"))
         import site_data                                    # noqa: PLC0415
-        return site_data.build()
+        live = site_data.build()
+        # the broker figure needs credentials the cloud does not have; keep the
+        # committed one and let the page say when it was read
+        if not live.get("broker") and committed and committed.get("broker"):
+            live["broker"] = committed["broker"]
+            live["broker_stale"] = True
+        return live
     except Exception:
-        try:
-            return json.loads(DATA.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        return committed
 
 
 d = _data()
