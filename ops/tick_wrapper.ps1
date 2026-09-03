@@ -23,6 +23,25 @@ $env:PYTHONIOENCODING = 'utf-8'
 python -m thetadesk.main tick 2>&1 | Out-File -Append -Encoding utf8 "$repo\data\tick.log"
 $rc = $LASTEXITCODE
 
+# Republish the dashboard export after EVERY tick. The once-a-session publish
+# below runs at 20:05 UTC, which is after Friday's submission deadline: without
+# this the cloud page would show yesterday's numbers while the desk was trading.
+# Never allowed to affect the tick's exit code.
+$log = "$repo/data/tick.log"
+try {
+  python "$repo/tools/site_data.py" --out "$repo/dashboard/web/data.json" 2>&1 |
+    Out-File -Append -Encoding utf8 $log
+  $changed = git -C $repo status --porcelain -- dashboard/web/data.json
+  if ($changed) {
+    git -C $repo add dashboard/web/data.json
+    git -C $repo commit -q -m "data: tick $($utc.ToString('HH:mm'))Z" 2>&1 |
+      Out-File -Append -Encoding utf8 $log
+    git -C $repo push -q origin master 2>&1 | Out-File -Append -Encoding utf8 $log
+  }
+} catch {
+  "site_data publish failed: $_" | Out-File -Append -Encoding utf8 $log
+}
+
 # Evidence archive + agent's daily note once per SESSION after the close.
 # The stamp is the New York session date (UTC-4): evidence.py names its
 # directory the same way, so the guard actually matches now (it never did:

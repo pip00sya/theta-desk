@@ -170,6 +170,15 @@ def build() -> dict:
                 collected = int(tail[0].split()[0])
     except Exception:
         collected = None
+    if collected is None:
+        # a tick every 15 minutes cannot always afford a collection pass; the
+        # last published figure is truer than a dash, and it is labelled below
+        try:
+            prev = json.loads((ROOT / "dashboard" / "web" / "data.json")
+                              .read_text(encoding="utf-8"))
+            collected = prev.get("verification", {}).get("tests_collected")
+        except Exception:
+            collected = None
     devlog = sum(1 for l in (ROOT / "DEVLOG.md").read_text(encoding="utf-8").splitlines()
                  if l.startswith("## #"))
     try:
