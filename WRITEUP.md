@@ -87,31 +87,46 @@ signal layer (realized vol, ATM IV, VRP, candidate) from every stored
 snapshot, the order path is replayed end-to-end against a fake broker in
 the test suite, and every number below regenerates with one command.
 
+## Measured, not shipped
+
+SPY and QQQ correlate ~0.9, so a book of condors across them is closer to one
+bet at size than to many independent ones. On Sep 3 every liquid candidate was
+run through the desk's own entry gates (17Δ/15Δ strikes, 10-wide wings, the
+0.18×width credit floor, the 8% spread ceiling): **GLD clears at 1.89** and is
+the only candidate whose risk driver is genuinely different from the book's —
+gold does not gap on the day equities do. SMH clears higher (2.16) and is
+rejected on purpose: it is QQQ's core by another name, so it would add
+concentration while looking like diversification. IWM (1.35) and DIA (1.52)
+miss the floor; TLT/SLV/EFA/XLE cannot carry a 10-point wing at their price.
+Gold is not shipped: it needs the payoff grid re-validated for an underlying
+uncorrelated with the rest of the book, and that is not a change to land
+hours before a deadline. The measurement is the result; the code is next.
+
 ## Verified claims
 
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 719 | `python tools/reconcile.py` |
+| 01 | journal_entries | 1116 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
-| 03 | ticks | 68 | `python tools/reconcile.py` |
-| 04 | gate_evaluations | 31 | `python tools/reconcile.py` |
-| 05 | entries_refused_by_gates | 18 | `python tools/reconcile.py` |
+| 03 | ticks | 91 | `python tools/reconcile.py` |
+| 04 | gate_evaluations | 54 | `python tools/reconcile.py` |
+| 05 | entries_refused_by_gates | 41 | `python tools/reconcile.py` |
 | 06 | structures_total | 11 | `python tools/reconcile.py` |
-| 07 | structures_open | 5 | `python tools/reconcile.py` |
-| 08 | structures_closed | 4 | `python tools/reconcile.py` |
-| 09 | realized_pnl_usd | 785.00 | `python tools/reconcile.py` |
+| 07 | structures_open | 3 | `python tools/reconcile.py` |
+| 08 | structures_closed | 6 | `python tools/reconcile.py` |
+| 09 | realized_pnl_usd | 598.00 | `python tools/reconcile.py` |
 | 10 | realized_pnl_per_broker_fills_usd | 785.00 | `python tools/reconcile.py` |
-| 11 | book_worst_case_peak_usd | 4123 | `python tools/reconcile.py` |
+| 11 | book_worst_case_peak_usd | 4125 | `python tools/reconcile.py` |
 | 12 | order_transports_used | cli,dry_run,rest | `python tools/reconcile.py` |
-| 13 | orders_submitted_live | 19 | `python tools/reconcile.py` |
+| 13 | orders_submitted_live | 21 | `python tools/reconcile.py` |
 | 14 | orders_rejected_at_submit | 0 | `python tools/reconcile.py` |
 | 15 | orders_cancelled_unfilled | 6 | `python tools/reconcile.py` |
-| 16 | desk_meetings_total | 42 | `python tools/reconcile.py` |
+| 16 | desk_meetings_total | 65 | `python tools/reconcile.py` |
 | 17 | desk_meetings_llm_dark | 8 | `python tools/reconcile.py` |
 | 18 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 | 19 | marks_quarantined | 8 | `python tools/reconcile.py` |
-| 20 | test_functions | 122 | `python tools/reconcile.py` |
+| 20 | test_functions | 124 | `python tools/reconcile.py` |
 <!-- CLAIMS:END -->
 
 *Paper trading simulation only. Hypothetical results, no real funds, not

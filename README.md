@@ -109,7 +109,7 @@ to take risk.
 
 ```bash
 pip install -e ".[dashboard,dev]"
-python -m pytest tests -q            # 103 tests
+python -m pytest tests -q            # 126 tests
 python tools/demo_week.py            # offline simulated week, zero credentials
 python tools/replay.py               # the signal layer reproduces from every snapshot
 python tools/reconcile.py            # every write-up number regenerates
@@ -120,6 +120,30 @@ python -m thetadesk.main alert-test  # prove Telegram/webhook/heartbeat delivery
 Live paper trading additionally needs `.env` (see `.env.example`) — and the
 process refuses to start unless the base URL is the paper host (fail-closed,
 `safety.py`).
+
+## What we measured but did not ship
+
+Diversification, with numbers instead of intent. The book runs SPY and QQQ,
+which correlate ~0.9 — nine condors across two names is closer to one bet at
+nine times the size than to nine bets. So on Sep 3 we ran every liquid
+candidate through the desk's OWN entry gates (17Δ/15Δ strikes, 10-wide wings,
+the 0.18×width credit floor, the 8% spread ceiling) on the Sep 18 expiry:
+
+| Underlying | Condor credit | Floor 1.80 | Verdict |
+|---|---|---|---|
+| QQQ | 1.94 | pass | already traded |
+| **GLD** (gold) | **1.89** | **pass** | **a genuinely different risk driver** |
+| SMH (semis) | 2.16 | pass | QQQ's core by another name — false diversification, and a 4.9% spread |
+| SPY | 1.76 | fail that hour | premium had compressed |
+| IWM / DIA | 1.35 / 1.52 | fail | too cheap for a 10-wide wing |
+| TLT / SLV / EFA / XLE | — | n/a | a 10-point wing is wider than a sane fraction of spot |
+
+GLD is the one worth having: gold does not break on the day equities gap, so
+its condor is a second bet rather than the same bet again. It is **not**
+shipped, and that is deliberate — it needs the payoff grid re-checked for an
+underlying that does not move with the rest of the book, and landing that
+17 hours before a deadline trades a working desk for a config line. The
+measurement is the deliverable; the code is the next session's.
 
 ## Honest notes
 
