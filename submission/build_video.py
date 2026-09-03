@@ -60,8 +60,10 @@ NARRATION = {
         "We didn't just claim the design matters — we measured it, live. Four books "
         "run on identical inputs: the real agent; the same strategy with gates "
         "ignored; the book without its hedge; and a naive baseline that reads a "
-        "headline and buys an option — the median hackathon strategy. The baseline "
-        "bled all week. The desk didn't."),
+        "headline and buys an option — the median hackathon strategy. The gap is "
+        "the point: the same trades without the risk gates are down two thousand "
+        "one hundred dollars while the gated book is up. That difference is what "
+        "the eighteen rules are worth, measured, not asserted."),
     6: ("verify.png",
         "Everything is reproducible. The journal is hash chained — change one byte "
         "and verification fails. Every tick stores its inputs, and one command "
@@ -70,8 +72,8 @@ NARRATION = {
         "credentials required."),
     7: ("account.png",
         "The result, on paper account P A 3 9 C 1 0 Y A M Y Q: a small, explained, "
-        "risk boxed P and L. Seven hundred and eighty five dollars realized, on a "
-        "book whose worst case never left three and a half percent of equity. Every "
+        "risk boxed P and L. Six hundred dollars realized, on a book whose worst "
+        "case never left three and a half percent of equity. Every "
         "position is defined risk. Position size grows only from realized gains. And "
         "the jobs report that lands on deadline morning is de-risked by rule, the "
         "day before — the desk will open nothing tomorrow, by design."),

@@ -147,13 +147,13 @@
     <div class="card"><h3>Bit-for-bit replay</h3>
       <p>Every tick stores its full input snapshot. <span class="mono">tools/replay.py</span>
       re-runs the deterministic pipeline over the week and diffs each decision.
-      Current score: <b class="green">100% MATCH</b>. Claims: <b class="green">20/20</b>, zero mismatches.</p></div>
+      Current score: <b class="green">100% MATCH</b>. Claims: <b class="green">{{CLAIMS}}</b>, zero mismatches.</p></div>
     <div class="card"><h3>Claims reconciler</h3>
       <p><span class="mono">tools/reconcile.py</span> recomputes every number in the
       write-up from the journal — no credentials required. Evidence archive
       snapshots account/orders/positions daily at the close.</p></div>
   </div>
-  <div class="card" style="margin-top:36px"><h3>DEVLOG — 33 documented self-corrections</h3>
+  <div class="card" style="margin-top:36px"><h3>DEVLOG — {{DEVLOG_N}} documented self-corrections</h3>
     <p>The build found real things: Alpaca's mleg <b>limit price is signed</b>
     (negative = credit — our abs() once turned «collect ≥ 3.40» into «pay ≤ 3.40»,
     caught by a weekend acceptance test, fixed, upstream feedback written) ·
@@ -169,10 +169,10 @@
   <h2>Four books. Same inputs. <span class="a">Different brains.</span></h2>
   <table>
     <tr><th>Book</th><th>What it is</th><th>P&amp;L (updated at submission)</th></tr>
-    <tr><td><b>real</b></td><td>the full agent: desk + 18 gates + management</td><td class="green"><b>+$763</b></td></tr>
-    <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td><b>+$61</b> — the gates are worth <b class="green">$702</b></td></tr>
-    <tr><td>shadow_nohedge</td><td>the real book minus its hedge sleeve</td><td><b>+$772</b> — the tail cost <b>$9</b> so far</td></tr>
-    <tr><td class="red">baseline_naive</td><td>«LLM reads a headline, buys ATM» — what a coin flip earns</td><td class="red"><b>−$46</b> — negative all week</td></tr>
+    <tr><td><b>real</b></td><td>the full agent: desk + 18 gates + management</td><td class="green"><b>{{REAL}}</b></td></tr>
+    <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td><b>{{NOGATES}}</b> — the gates are worth <b class="green">{{GATES_WORTH}}</b></td></tr>
+    <tr><td>shadow_nohedge</td><td>the real book minus its hedge sleeve</td><td><b>{{NOHEDGE}}</b> — the tail has cost <b>{{HEDGE_COST}}</b> so far</td></tr>
+    <tr><td class="red">baseline_naive</td><td>«LLM reads a headline, buys ATM» — what a coin flip earns</td><td class="red"><b>{{NAIVE}}</b> — negative all week</td></tr>
   </table>
   <div class="sub" style="margin-top:36px">We didn't just claim the gates and the structure matter —
   we ran the agent without them, on the same ticks, and published the gap.</div>
@@ -197,7 +197,7 @@
       NFP-morning deadline entered with winners locked by rule.</p></div>
     <div class="card"><h3>Built and operated by AI</h3>
       <p>Designed, coded, red-teamed, debugged and run end-to-end by Claude
-      (Claude Code + Alpaca MCP), with 33 self-corrections documented in
+      (Claude Code + Alpaca MCP), with {{DEVLOG_N}} self-corrections documented in
       DEVLOG.md — including the desk replaying its own snapshot to find a
       <b>$208</b> mispriced exit, then pinning it with a test. Disclosed openly.</p></div>
   </div>
