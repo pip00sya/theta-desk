@@ -107,22 +107,22 @@ hours before a deadline. The measurement is the result; the code is next.
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 1116 | `python tools/reconcile.py` |
+| 01 | journal_entries | 1168 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
-| 03 | ticks | 91 | `python tools/reconcile.py` |
-| 04 | gate_evaluations | 54 | `python tools/reconcile.py` |
-| 05 | entries_refused_by_gates | 41 | `python tools/reconcile.py` |
+| 03 | ticks | 96 | `python tools/reconcile.py` |
+| 04 | gate_evaluations | 57 | `python tools/reconcile.py` |
+| 05 | entries_refused_by_gates | 44 | `python tools/reconcile.py` |
 | 06 | structures_total | 11 | `python tools/reconcile.py` |
 | 07 | structures_open | 3 | `python tools/reconcile.py` |
 | 08 | structures_closed | 6 | `python tools/reconcile.py` |
 | 09 | realized_pnl_usd | 598.00 | `python tools/reconcile.py` |
-| 10 | realized_pnl_per_broker_fills_usd | 785.00 | `python tools/reconcile.py` |
+| 10 | realized_pnl_per_broker_fills_usd | 598.00 | `python tools/reconcile.py` |
 | 11 | book_worst_case_peak_usd | 4125 | `python tools/reconcile.py` |
 | 12 | order_transports_used | cli,dry_run,rest | `python tools/reconcile.py` |
 | 13 | orders_submitted_live | 21 | `python tools/reconcile.py` |
 | 14 | orders_rejected_at_submit | 0 | `python tools/reconcile.py` |
 | 15 | orders_cancelled_unfilled | 6 | `python tools/reconcile.py` |
-| 16 | desk_meetings_total | 65 | `python tools/reconcile.py` |
+| 16 | desk_meetings_total | 68 | `python tools/reconcile.py` |
 | 17 | desk_meetings_llm_dark | 8 | `python tools/reconcile.py` |
 | 18 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 | 19 | marks_quarantined | 8 | `python tools/reconcile.py` |

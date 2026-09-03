@@ -1,6 +1,6 @@
-﻿# generated 2026-09-02T17:44:38Z at commit c637d16 by: ops/publish.ps1
-OK: chain intact (584 entries)
+﻿# generated 2026-09-03T20:17:24Z at commit aa655c3 by: ops/publish.ps1
+OK: chain intact (1168 entries)
 
-replay: 56/56 snapshots reproduce, 0 divergence(s)
+replay: 91/91 snapshots reproduce, 0 divergence(s)
 
 20/20 claims reproduced - 0 mismatches - no credentials required
