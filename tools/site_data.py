@@ -118,8 +118,10 @@ def _series(entries: list[dict], store, cfg, equity: float) -> dict:
             refus.append({"t": t, "gate": d.get("gate", "?"), "reason": (d.get("reason") or "")[:160]})
         elif k == "manage" and d.get("structure_id"):
             sid = d["structure_id"][:8]
+            pnl = d.get("est_pnl")
             manage.setdefault(sid, []).append(
-                {"t": t, "p": d.get("est_pnl"), "a": d.get("action")})
+                {"t": t, "a": d.get("action"),
+                 "p": round(float(pnl), 2) if isinstance(pnl, (int, float)) else None})
         elif k == "integrity":
             integ.append({"t": t, "ok": bool(d.get("ok")), "reason": (d.get("reason") or "")[:120]})
         elif k == "derisk_mode":
