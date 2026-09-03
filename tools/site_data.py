@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sqlite3
 import subprocess
@@ -63,6 +64,101 @@ def _legs(structure: dict) -> list[dict]:
             "entry": l.get("entry_price"),
         })
     return out
+
+
+# Human labels for the gates. The ids come from the journal itself so this list
+# can never drift from what actually ran; the labels say what each one enforces.
+GATE_LABELS = {
+    "g2_universe":           ("Universe", "only the underlyings the desk is authorised to trade"),
+    "g3_expiry":             ("Expiry", "no expiry inside the judging horizon or under min DTE"),
+    "g4_defined_risk":       ("Defined risk", "every structure's worst case must be finite and known"),
+    "g5g6_liquidity":        ("Liquidity", "two-sided quotes, relative spread inside the limit"),
+    "g7_structure_size":     ("Structure size", "one structure may not risk more than its share of equity"),
+    "g8_portfolio_worst_case": ("Portfolio worst case", "book + candidate repriced over a +/-20% grid"),
+    "g9_daily_budget":       ("Daily budget", "new risk opened today against the day's allowance"),
+    "g10_time_window":       ("Time window", "no entries in the first or last minutes of a session"),
+    "g14_halt":              ("Drawdown halt", "trading stops after a drawdown from the high-water mark"),
+    "g17_event_derisk":      ("Event de-risk", "no new risk inside the window before a high-class release"),
+    "g18_sleeve_budget":     ("Sleeve budget", "the long-premium sleeve has its own separate allowance"),
+    "g19_feed_freshness":    ("Feed freshness", "stale or one-sided market data refuses the trade"),
+}
+
+
+def _series(entries: list[dict], store, cfg, equity: float) -> dict:
+    """Every series the page can honestly draw, from the journal and the store.
+
+    The dashboard used to publish one equity curve and four scalars, so it could
+    only ever draw one chart. Everything here already existed in the journal;
+    it was simply never exported. Keys are short because these arrays are
+    inlined into the page.
+    """
+    sig, gates, desk, refus, integ, derisk, ticks = [], [], [], [], [], [], []
+    manage: dict[str, list] = {}
+    for e in entries:
+        t, k, d = e["ts"][:19], e["kind"], e.get("data", {})
+        if k == "signals" and d.get("spot"):
+            sig.append({"t": t, "spot": round(float(d["spot"]), 2),
+                        "rv": d.get("rv20"), "iv": d.get("atm_iv"),
+                        "vrp": d.get("vrp_score")})
+        elif k == "gates":
+            res = {r["gate"]: (1 if r["passed"] else 0) for r in d.get("results", [])}
+            gates.append({"t": t, "sid": (d.get("structure_id") or "")[:8],
+                          "kind": d.get("kind"), "qty": d.get("qty"),
+                          "passed": bool(d.get("passed")), "r": res,
+                          "fails": [{"gate": r["gate"], "reason": r["reason"]}
+                                    for r in d.get("results", []) if not r["passed"]]})
+        elif k == "desk":
+            ex = d.get("exchanges") or []
+            desk.append({"t": t, "a": d.get("regime_analyst"), "b": d.get("regime_second"),
+                         "dis": bool(d.get("disagreement")), "veto": bool(d.get("veto")),
+                         "mult": d.get("size_mult"),
+                         "dark": bool(ex) and all(not x.get("ok") for x in ex),
+                         "why": (d.get("veto_reason") or d.get("objection") or "")[:120]})
+        elif k == "entry_refused":
+            refus.append({"t": t, "gate": d.get("gate", "?"), "reason": (d.get("reason") or "")[:160]})
+        elif k == "manage" and d.get("structure_id"):
+            sid = d["structure_id"][:8]
+            manage.setdefault(sid, []).append(
+                {"t": t, "p": d.get("est_pnl"), "a": d.get("action")})
+        elif k == "integrity":
+            integ.append({"t": t, "ok": bool(d.get("ok")), "reason": (d.get("reason") or "")[:120]})
+        elif k == "derisk_mode":
+            derisk.append({"t": t, "reason": (d.get("reason") or "")[:120]})
+        elif k == "tick_end":
+            ticks.append({"t": t, "entry": bool(d.get("entry_made"))})
+
+    # marks carry the greeks, so a book's curve and its risk profile are one row
+    books = {}
+    for book in BOOKS:
+        rows = [m for m in store.marks(book) if _quality(m.get("detail_json")) == "ok"]
+        books[book] = [{"t": m["ts"][:19],
+                        "v": round(float(m["unrealized"] or 0) + float(m["realized"] or 0), 2),
+                        "u": round(float(m["unrealized"] or 0), 2),
+                        "r": round(float(m["realized"] or 0), 2),
+                        "d": round(float(m["delta"] or 0), 2),
+                        "th": round(float(m["theta"] or 0), 2),
+                        "vg": round(float(m["vega"] or 0), 2)} for m in rows]
+
+    seen = {g for row in gates for g in row["r"]}
+    gate_defs = sorted(
+        [{"id": g, "label": GATE_LABELS.get(g, (g, ""))[0], "what": GATE_LABELS.get(g, (g, ""))[1]}
+         for g in seen],
+        # "g5g6_liquidity" must sort as 5, not 56
+        key=lambda x: int("".join(itertools.takewhile(str.isdigit, x["id"][1:])) or 0))
+
+    r = cfg.raw.get("risk", {})
+    limits = {
+        "per_structure":  round(equity * r.get("per_structure_max_loss_frac", 0), 2),
+        "portfolio":      round(equity * r.get("portfolio_worst_case_frac", 0), 2),
+        "portfolio_cap":  round(equity * r.get("portfolio_worst_case_cap", 0), 2),
+        "daily_new":      round(equity * r.get("daily_new_risk_frac", 0), 2),
+        "cheap_sleeve":   round(equity * r.get("cheap_sleeve_budget_frac", 0), 2),
+        "drawdown_halt":  round(equity * r.get("drawdown_halt_frac", 0), 2),
+    }
+    return ({"signal": sig, "books": books, "gates": gates, "desk": desk,
+             "refusals": refus, "manage": manage, "integrity": integ,
+             "derisk": derisk, "ticks": ticks},
+            gate_defs, limits)
 
 
 def build() -> dict:
@@ -234,6 +330,22 @@ def build() -> dict:
     except Exception:
         quotes = None
 
+    series, gate_defs, limits = _series(entries, store, cfg,
+                                       broker["equity"] if broker else START_EQUITY)
+
+    # closed trades as a cross-section: a distribution needs one row per trade
+    trades = []
+    for row in closed_rows:
+        try:
+            o = datetime.fromisoformat(row["opened"]); c = datetime.fromisoformat(row["closed"])
+            hours = round((c - o).total_seconds() / 3600, 1)
+        except Exception:
+            hours = None
+        trades.append({"id": row["id"], "kind": row["kind"], "sleeve": row["sleeve"],
+                       "pnl": row["pnl"], "credit": row["credit"],
+                       "max_loss": row["max_loss"], "hours": hours,
+                       "opened": row["opened"], "closed": row["closed"]})
+
     return {
         "generated_utc": now.isoformat(timespec="seconds"),
         "commit": head,
@@ -261,6 +373,13 @@ def build() -> dict:
         },
         "greeks": greeks,
         "quotes": quotes,
+        # everything below already existed in the journal and the store; the old
+        # page simply never exported it, which is why it could draw one chart
+        "series": series,
+        "gate_defs": gate_defs,
+        "limits": limits,
+        "trades": trades,
+        "params": cfg.raw,
         "curves": curves,
         "marks_quarantined": quarantined,
         "positions": {"open": open_rows, "closed": closed_rows},
