@@ -170,12 +170,14 @@
   <table>
     <tr><th>Book</th><th>What it is</th><th>P&amp;L (updated at submission)</th></tr>
     <tr><td><b>real</b></td><td>the full agent: desk + 18 gates + management</td><td class="green"><b>{{REAL}}</b></td></tr>
-    <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td><b>{{NOGATES}}</b> — the gates are worth <b class="green">{{GATES_WORTH}}</b></td></tr>
+    <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td><b>{{NOGATES}}</b> — a <b>bound</b>, not a like-for-like P&amp;L: shadow books never take profits</td></tr>
     <tr><td>shadow_nohedge</td><td>the real book minus its hedge sleeve</td><td><b>{{NOHEDGE}}</b> — the tail has cost <b>{{HEDGE_COST}}</b> so far</td></tr>
     <tr><td class="red">baseline_naive</td><td>«LLM reads a headline, buys ATM» — what a coin flip earns</td><td class="red"><b>{{NAIVE}}</b> — negative all week</td></tr>
   </table>
-  <div class="sub" style="margin-top:36px">We didn't just claim the gates and the structure matter —
-  we ran the agent without them, on the same ticks, and published the gap.</div>
+  <div class="sub" style="margin-top:36px">We didn't just claim the gates matter — we ran the agent
+  without them, on the same ticks, and published the gap <b>with its caveat</b>: the shadow books never
+  close a winner, so they bound the cost of refusing nothing rather than price it. 43 entries were
+  refused this week — 16 on liquidity, 14 before the jobs report, 9 on the daily budget, 4 at the session edges.</div>
   <div class="foot"><div>Marks carry net book greeks ($-delta / $-theta / $-vega) — the dashboard explains WHY the curve moved</div></div>
 </div></div>
 

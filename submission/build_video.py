@@ -60,10 +60,13 @@ NARRATION = {
         "We didn't just claim the design matters — we measured it, live. Four books "
         "run on identical inputs: the real agent; the same strategy with gates "
         "ignored; the book without its hedge; and a naive baseline that reads a "
-        "headline and buys an option — the median hackathon strategy. The gap is "
-        "the point: the same trades without the risk gates are down two thousand "
-        "one hundred dollars while the gated book is up. That difference is what "
-        "the eighteen rules are worth, measured, not asserted."),
+        "headline and buys an option — the median hackathon strategy. Being precise "
+        "about what that shows: the shadow books never take profits, so they are a "
+        "bound, not a like for like P and L. The gates refused forty three entries "
+        "this week — on liquidity, on the daily budget, on the session edges, and "
+        "before the jobs report. The unmanaged book of everything they let through "
+        "and everything they refused is deep in the red while the gated book is "
+        "green. The gates are load bearing. We publish the caveat with the number."),
     6: ("verify.png",
         "Everything is reproducible. The journal is hash chained — change one byte "
         "and verification fails. Every tick stores its inputs, and one command "

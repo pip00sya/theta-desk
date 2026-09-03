@@ -53,7 +53,6 @@ def values() -> dict[str, str]:
         "NOGATES": _money(nogates),
         "NOHEDGE": _money(nohedge),
         "NAIVE": _money(naive),
-        "GATES_WORTH": f"${real - nogates:,.0f}",
         "HEDGE_COST": f"${abs(nohedge - real):,.0f}",
         "CLAIMS": f"{len(claims)}/{len(claims)}",
         "DEVLOG_N": str(devlog),

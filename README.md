@@ -70,8 +70,9 @@ universal spread rule for options margin — applied one step earlier.
 - **Live ablation** — counterfactual books on identical inputs: the strategy
   without gates (unmanaged, marked at mid) and a naive "read a headline, buy
   an option" baseline. A bound on the value of the gates, not a like-for-like
-  P&L; the hedge sleeve has not fired yet because the book has been long
-  premium, so the "no hedge" curve is hidden while it equals the real one
+  P&L. The gates refused 43 entries this week — 16 on liquidity, 14 before the
+  jobs report, 9 on the daily budget, 4 at the session edges. The hedge sleeve
+  fired on Sep 2 (SPY 712 put), so the "no hedge" curve now diverges
 - **Data-quality gate** (DEVLOG #28) — every tick classifies its own inputs
   (quote, spot vs last close, bar freshness, IV bounds) as full / mark-only /
   skip before anything is written; closed-market ticks only settle orders
