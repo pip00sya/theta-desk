@@ -33,7 +33,10 @@ st.markdown("""<style>
   .block-container { padding:0 !important; max-width:100% !important; }
   .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
     background:#0B0B0C; overflow:hidden !important; }
-  iframe[title="streamlit_component_v1"] {
+  /* the local Streamlit calls this iframe streamlit_component_v1 and the one
+     on Cloud calls it st.iframe; match both or the page ends up clipped */
+  iframe[title="streamlit_component_v1"], iframe[title="st.iframe"],
+  iframe[data-testid="stIFrame"], iframe.stIFrame {
     position:fixed !important; inset:0 !important;
     width:100vw !important; height:100vh !important; border:0 !important; z-index:1; }
 </style>""", unsafe_allow_html=True)
