@@ -37,9 +37,11 @@ header{border-bottom:1px solid var(--rule);padding:26px 0 0;margin-bottom:20px}
 .dot.stale{background:var(--gate);box-shadow:0 0 0 3px rgba(255,212,0,.15)}
 
 /* ── kpi row ──────────────────────────────────────────────── */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(186px,1fr));
-  gap:1px;background:var(--rule);border:1px solid var(--rule);margin:20px 0 0}
-.kpi{background:var(--surface);padding:14px 16px 15px}
+/* flex, not grid: five tiles into a four-wide row leaves grid with a dead cell
+   that reads as a broken panel. Flex stretches the last row instead. */
+.kpis{display:flex;flex-wrap:wrap;gap:1px;background:var(--rule);
+  border:1px solid var(--rule);margin:20px 0 0}
+.kpi{background:var(--surface);padding:14px 16px 15px;flex:1 1 186px}
 .kpi .lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--faint);display:block;margin-bottom:7px}
 .kpi .val{font-family:var(--mono);font-size:25px;font-weight:500;letter-spacing:-.02em;
@@ -54,7 +56,12 @@ header{border-bottom:1px solid var(--rule);padding:26px 0 0;margin-bottom:20px}
 .recon .eq b{font-weight:500}
 .recon .eq span{color:var(--soft)}
 .recon .note{font-size:11.5px;color:var(--faint);max-width:64ch}
+.recon.lag{border-color:#3A3A32}
 .recon.bad{border-color:var(--loss)}
+.recon .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid var(--rule);color:var(--soft)}
+.recon.lag .tag{color:var(--gate);border-color:var(--gate)}
+.recon.bad .tag{color:var(--loss);border-color:var(--loss)}
 
 /* ── layout ───────────────────────────────────────────────── */
 .grid{display:grid;grid-template-columns:238px 1fr 268px;gap:18px;margin-top:18px}
@@ -261,21 +268,37 @@ function render(d){
       <span class="sub">entries a rule stopped this week</span></div>`,
   ].join("");
 
-  /* ---- reconciliation: the arithmetic, not a claim ---- */
+  /* ---- reconciliation: the arithmetic, not a claim ----------------------
+     Our marks are NBBO mids stamped at a tick; the broker marks at the close.
+     A gap is therefore expected — but only up to the width of the quotes. So
+     the page divides the gap by the contracts that produced it and lets the
+     reader judge that number against a spread, instead of asserting "fine". */
   $("#recon").hidden = !b;
   if(b){
-    const closes = Math.abs((100000 + bk.realized + bk.unrealized) - b.equity);
-    $("#recon").className = "recon" + (closes > 5 ? " bad" : "");
-    $("#recon").innerHTML = closes > 5
-      ? `<span class="eq"><b>${plain(b.equity)}</b> <span>vs</span> <b>${plain(100000+bk.realized+bk.unrealized)}</b>
-         <span>— these do not close;</span> <b class="down">${money(b.equity-(100000+bk.realized+bk.unrealized))}</b> <span>unexplained</span></span>
-         <span class="note">The broker moved after the last tick, so the marked book lags. The gap is
-         printed rather than hidden; it closes at the next mark.</span>`
-      : `<span class="eq"><b>${plain(b.equity)}</b> <span>=</span> ${plain(100000)}
-         <span>start</span> <b class="${cls(bk.realized)}">${money(bk.realized)}</b> <span>realized</span>
-         <b class="${cls(bk.unrealized)}">${money(bk.unrealized)}</b> <span>open mark</span></span>
-         <span class="note">Realized and marked are different kinds of number and are never added
-         without showing the subtraction. Equity is read from the account, not computed here.</span>`;
+    const marked = 100000 + bk.realized + bk.unrealized;
+    const gap    = marked - b.equity;
+    const ctr    = (d.positions.open||[]).reduce((n,p)=>
+                     n + p.legs.reduce((m,l)=>m+Math.abs(l.qty),0), 0);
+    // an option price is quoted per share and settles ×100, so dollars-of-gap
+    // divided by contracts IS the per-share difference in cents. Compare that
+    // to a quote width, which is the only thing that can honestly excuse it.
+    const cents  = ctr ? Math.abs(gap)/ctr : 0;
+    const state  = Math.abs(gap) <= 5 ? "" : (ctr && cents <= 10 ? " lag" : " bad");
+    $("#recon").className = "recon" + state;
+    const sum = `<span class="eq"><b>${plain(b.equity)}</b> <span>broker</span>
+       <span>·</span> <b>${plain(marked)}</b> <span>marked</span></span>`;
+    $("#recon").innerHTML =
+      state === ""   ? `${sum}<span class="tag">closes</span>
+         <span class="note">Equity is read from the account, not computed here. Realized and
+         marked are different kinds of number and are never added without showing the subtraction.</span>`
+    : state === " lag" ? `${sum}<span class="tag">lag ${money(gap)}</span>
+         <span class="note">$${Math.abs(gap).toFixed(2)} across ${ctr} open contracts is
+         <b>${cents.toFixed(1)}¢ each</b> — inside the quoted spread. We mark at the NBBO mid
+         at ${bk.marked_at.slice(11,16)}Z; the broker marks at the official close. Printed, not netted away.</span>`
+    :                `${sum}<span class="tag">gap ${money(gap)}</span>
+         <span class="note">${ctr ? cents.toFixed(0)+"¢ per open contract" : "no open contracts"} —
+         wider than a quote can explain. Treat the broker figure as the true one and
+         <code>python tools/broker_check.py</code> for the per-leg difference.</span>`;
   }
 
   /* ---- signals ---- */

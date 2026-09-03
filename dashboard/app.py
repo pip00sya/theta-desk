@@ -23,12 +23,19 @@ sys.path.insert(0, str(ROOT / "src"))
 
 st.set_page_config(page_title="THETA DESK", page_icon="◱", layout="wide",
                    initial_sidebar_state="collapsed")
+# Streamlit gives a component a fixed-height box inside a page that does not
+# scroll, so anything past the first screen becomes unreachable. Rather than
+# guess a height, the component is pinned to the viewport and the page inside
+# it does its own scrolling — which is what a full-bleed instrument wants.
 st.markdown("""<style>
   #MainMenu, footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"],
   [data-testid="stSidebarNav"] { display:none !important; }
   .block-container { padding:0 !important; max-width:100% !important; }
-  .stApp { background:#0B0B0C; }
-  iframe { border:0; }
+  .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+    background:#0B0B0C; overflow:hidden !important; }
+  iframe[title="streamlit_component_v1"] {
+    position:fixed !important; inset:0 !important;
+    width:100vw !important; height:100vh !important; border:0 !important; z-index:1; }
 </style>""", unsafe_allow_html=True)
 
 PAGE = ROOT / "dashboard" / "web" / "index.html"
@@ -74,4 +81,4 @@ if d is not None:
         '    const r = await fetch("data.json?" + Math.floor(Date.now()/60000));\n'
         '    if(!r.ok) throw new Error(r.status);\n    render(await r.json());')
 
-components.html(html, height=2400, scrolling=True)
+components.html(html, height=900, scrolling=True)
