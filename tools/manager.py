@@ -10,9 +10,8 @@ before the selector exists.
 Why a second cadence (DEVLOG #36): on 2026-09-01 the fourth position touched
 its +60% target between ticks and the next tick found it lower. An exit that
 is checked every fifteen minutes is an exit with a fifteen-minute hole in it.
-trdrbot runs the same split — sixty seconds for reconciliation and exits,
-fifteen minutes for the decision; Convexity's reduce-only brain runs every
-fifteen seconds.
+A slow clock for deciding and a fast one for managing is the ordinary shape
+of a desk; ours simply did not have the fast one until now.
 
 Each pass is a subprocess under the tick's own lock, so the two can never
 overlap and one bad pass can never take the loop down. The loop steps aside

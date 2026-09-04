@@ -36,3 +36,6 @@ data/pulse.out
 # the manager loop (DEVLOG #36): its log and pid are machine-local
 data/manager.log
 data/manager.pid
+
+# competitor research is not part of this project
+research/

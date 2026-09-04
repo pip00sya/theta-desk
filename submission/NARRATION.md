@@ -121,10 +121,9 @@ made **on**. Six hundred came off three thousand one hundred and sixty five
 dollars of risk that actually closed. That's **nearly nineteen percent** on
 the capital we genuinely put at risk.
 
-Compare that. The team at the top of this leaderboard runs **thirty five
-percent** of its book at risk and files eight of its thirteen closed
-positions under "luck" on its own scorecard. We ran **four point eight five
-percent** all week — and earned more per dollar risked.
+And across the whole week the book only ever carried **four point eight five
+percent** of equity. So the constraint was never the quality of the
+decisions — it was how few dollars each correct decision was allowed to move.
 
 We were never behind on decisions. We were behind on **size**, and we can
 point at the exact line. Our ceiling was one and a quarter percent of equity
