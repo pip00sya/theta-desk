@@ -4,7 +4,7 @@
 
 **Short Description (225/255):**
 ```
-An autonomous options desk on Alpaca that doesn't predict prices — it prices the volatility risk premium, runs a hedged two-sleeve book, and refuses any trade that fails an 18-gate risk wall with a portfolio payoff simulator.
+An autonomous options desk on Alpaca that doesn't predict prices — it prices the volatility risk premium, runs a hedged two-sleeve book, and refuses any trade that fails a 12-gate risk wall with a portfolio payoff simulator.
 ```
 
 **Long Description (1766/2000):**

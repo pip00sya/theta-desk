@@ -46,7 +46,7 @@ NARRATION = {
         "independent second opinion on an open Mistral model — different providers, "
         "so disagreement is real; a news vetoer; and a risk officer whose only job is "
         "to attack the trade. They can veto the day and shrink the size. What they "
-        "cannot do is loosen a single risk gate. Eighteen of them, all deterministic "
+        "cannot do is loosen a single risk gate. Twelve of them, all deterministic "
         "Python."),
     4: ("slide4.png",
         "The central gate is the desk's veto right. Before any order, the entire book "
@@ -110,13 +110,44 @@ def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+_SERVER = {"port": None}
+
+
+def _serve(root: Path) -> int:
+    """Headless Chrome refuses file:// screenshots here, so frames are served.
+
+    Edge's --screenshot stopped producing files on this machine on 2026-09-03
+    (see the note on the PIL fallback below); Chrome works, but only over http.
+    One short-lived server for the whole build.
+    """
+    if _SERVER["port"]:
+        return _SERVER["port"]
+    import functools
+    import http.server
+    import socketserver
+    import threading
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
+    httpd = socketserver.TCPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    _SERVER["port"] = httpd.server_address[1]
+    return _SERVER["port"]
+
+
 def edge_shot(html: Path, png: Path) -> None:
-    r = run([EDGE, "--headless", "--disable-gpu",
-             f"--user-data-dir={WORK / 'edgeprof'}",
+    """Render one frame. Named for the browser it used to use."""
+    browser = CHROME if Path(CHROME).exists() else EDGE
+    port = _serve(ROOT)
+    url = f"http://127.0.0.1:{port}/" + html.resolve().relative_to(ROOT).as_posix()
+    if png.exists():
+        png.unlink()
+    r = run([browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+             "--force-device-scale-factor=1",
+             f"--user-data-dir={WORK / 'shotprof'}",
              f"--screenshot={png}", "--window-size=1600,900",
-             html.as_uri()])
+             "--virtual-time-budget=9000", url])
     if not png.exists():
-        sys.exit(f"edge render failed for {html}: {r.stderr[-300:]}")
+        sys.exit(f"render failed for {html}: {r.stderr[-300:]}")
 
 
 def split_slides() -> None:

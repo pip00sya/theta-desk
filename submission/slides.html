@@ -92,7 +92,7 @@
     <div class="arrow">→</div>
     <div class="step"><b>Selector</b><span>deterministic regime map picks the structure and delta-targets the strikes</span></div>
     <div class="arrow">→</div>
-    <div class="step veto"><b>18 gates</b><span>incl. ★ portfolio payoff simulator — the desk's veto right</span></div>
+    <div class="step veto"><b>12 gates</b><span>incl. ★ portfolio payoff simulator — the desk's veto right</span></div>
     <div class="arrow">→</div>
     <div class="step"><b>Execution</b><span>mleg limit via Alpaca CLI, signed prices, idempotent order ids</span></div>
     <div class="arrow">→</div>
@@ -169,7 +169,7 @@
   <h2>Four books. Same inputs. <span class="a">Different brains.</span></h2>
   <table>
     <tr><th>Book</th><th>What it is</th><th>P&amp;L (updated at submission)</th></tr>
-    <tr><td><b>real</b></td><td>the full agent: desk + 18 gates + management</td><td class="green"><b>{{REAL}}</b></td></tr>
+    <tr><td><b>real</b></td><td>the full agent: desk + 12 gates + management</td><td class="green"><b>{{REAL}}</b></td></tr>
     <tr><td>shadow_nogates</td><td>same strategy, gates ignored, fills at mid</td><td><b>{{NOGATES}}</b> — a <b>bound</b>, not a like-for-like P&amp;L: shadow books never take profits</td></tr>
     <tr><td>shadow_nohedge</td><td>the real book minus its hedge sleeve</td><td><b>{{NOHEDGE}}</b> — the tail has cost <b>{{HEDGE_COST}}</b> so far</td></tr>
     <tr><td class="red">baseline_naive</td><td>«LLM reads a headline, buys ATM» — what a coin flip earns</td><td class="red"><b>{{NAIVE}}</b> — negative all week</td></tr>
