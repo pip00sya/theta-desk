@@ -9,7 +9,7 @@ Team Qwertys — [Alpaca AI Trading Agents Hackathon](https://lablab.ai/ai-hacka
 <a href="https://theta-desk.streamlit.app"><b>▶ Dashboard</b></a> (daily snapshot) ·
 <a href="https://theta-desk.streamlit.app/?judge=1">Judge mode</a> ·
 <a href="WRITEUP.md">One-page write-up</a> ·
-<a href="DEVLOG.md">DEVLOG — 33 documented self-corrections</a> ·
+<a href="DEVLOG.md">DEVLOG — 38 documented self-corrections</a> ·
 <a href="API-FEEDBACK.md">Feedback for the Alpaca team</a>
 </p>
 
@@ -63,15 +63,15 @@ universal spread rule for options margin — applied one step earlier.
   diffs the store against the broker's fills
 - **Signal replay** — every tick stores its inputs; `tools/replay.py`
   recomputes the signal layer (realized vol, ATM IV, VRP, candidate id) from
-  every snapshot (currently 100% MATCH); the order path is replayed
+  every snapshot (91/91, 100% MATCH); the order path is replayed
   end-to-end against a fake broker in `tests/test_tick_flow.py`
 - **Claims reconciler** — `tools/reconcile.py` recomputes every number in
   [WRITEUP.md](WRITEUP.md) from the journal, no credentials required
 - **Live ablation** — counterfactual books on identical inputs: the strategy
   without gates (unmanaged, marked at mid) and a naive "read a headline, buy
   an option" baseline. A bound on the value of the gates, not a like-for-like
-  P&L. The gates refused 43 entries this week — 16 on liquidity, 14 before the
-  jobs report, 9 on the daily budget, 4 at the session edges. The hedge sleeve
+  P&L. The gates refused 111 candidates this week — on liquidity, before the jobs
+  report, on the daily budget and at the session edges. The hedge sleeve
   fired on Sep 2 (SPY 712 put), so the "no hedge" curve now diverges
 - **Data-quality gate** (DEVLOG #28) — every tick classifies its own inputs
   (quote, spot vs last close, bar freshness, IV bounds) as full / mark-only /
@@ -115,7 +115,7 @@ before it sizes. A management pass runs every minute (`tools/manager.py`,
 
 ```bash
 pip install -e ".[dashboard,dev]"
-python -m pytest tests -q            # 126 tests
+python -m pytest tests -q            # 162 tests
 python tools/demo_week.py            # offline simulated week, zero credentials
 python tools/replay.py               # the signal layer reproduces from every snapshot
 python tools/reconcile.py            # every write-up number regenerates
