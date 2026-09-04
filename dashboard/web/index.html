@@ -462,7 +462,7 @@ function ladderLine() {
   if (!L.enabled) return 'percentages of equity, fixed in config and enforced in code';
   /* block() escapes this label, so it is plain text on purpose */
   var s = 'size ladder · rung ' + L.tier + ' · ' + n0(L.closed) + ' closed, ' +
-    sgn(L.realized) + ' realised';
+    money(L.realized, 0) + ' realised';
   if (L.demoted) s += ' · ' + L.demoted + ' rung' + (L.demoted > 1 ? 's' : '') +
     ' taken back at ' + pctf(L.drawdown) + ' drawdown';
   else if (L.next) s += ' · next: ' + E(L.next.name) + ' at ' + n0(L.next.min_closed) + ' closed';
