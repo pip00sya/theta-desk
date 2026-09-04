@@ -83,7 +83,7 @@
 
 <!-- 3. ARCHITECTURE -->
 <div class="slide"><div class="grid"></div><div class="z">
-  <div class="kicker">Architecture — one tick, every 15 minutes of the session</div>
+  <div class="kicker">Architecture — two clocks: decide every 15 min, manage every 60 sec</div>
   <h2>LLMs decide <span class="a">whether it's wise</span>.<br>Code decides <span class="blue">whether it's allowed</span>.</h2>
   <div class="flow">
     <div class="step"><b>Data</b><span>chain + greeks + IV (free feed), 20d RV, positions, per-underlying spots</span></div>
@@ -99,15 +99,16 @@
     <div class="step"><b>Audit</b><span>hash-chained journal · snapshots · 4 books marked</span></div>
   </div>
   <div class="cols">
-    <div class="card"><h3>Management, every tick</h3>
-      <p>35% target on credit · +60% target on debit · realization policy on idle
-      days · NFP de-risk locks winners ≥ +15% the day before · drawdown = halt,
-      never panic-flatten.</p></div>
-    <div class="card"><h3>Sizing is earned</h3>
-      <p>Risk budgets grow only from <b>realized</b> gains: worst-case 6% → 8%,
-      long-premium sleeve 1.5% → 2.5%. The agent earns the right to take risk.</p></div>
+    <div class="card"><h3>Management, <b>every 60 seconds</b></h3>
+      <p>35% target on credit · +60% on debit · trailing stop · regime exit · NFP
+      shield · drawdown = halt, never panic-flatten. The fast loop reconciles,
+      re-marks and exits — and <b>structurally cannot open a position</b>.</p></div>
+    <div class="card"><h3>Sizing is earned, twice</h3>
+      <p>The ladder sets every ceiling from the desk's own record: <b>2 → 3 → 4%</b>
+      per structure at 0 / 5 / 15 closed trades. Inside a rung, budgets grow only
+      from <b>realized</b> gains. Drawdown takes rungs back.</p></div>
   </div>
-  <div class="foot"><div>Scheduler mirrors the exchange session · weekends silent · survives sleep &amp; battery</div></div>
+  <div class="foot"><div>An exit checked once every 15 minutes is an exit with a 15-minute hole in it — on 1 Sep a position fell through it</div></div>
 </div></div>
 
 <!-- 4. KILLER FEATURE -->
@@ -161,6 +162,38 @@
     silently skip scheduled runs · a far-OTM hedge converts the tail, not the
     worst case. Each one is in the repo with its fix and test.</p></div>
   <div class="foot"><div>make verify = chain + replay + reconcile, one command, green</div></div>
+</div></div>
+
+<!-- 5b. EARNED SIZE — the honest number -->
+<div class="slide"><div class="grid"></div><div class="z">
+  <div class="kicker">What we got wrong, measured — and what we changed on deadline day</div>
+  <h2>We were never behind on decisions.<br>We were behind on <span class="a">size</span>.</h2>
+  <div class="cols">
+    <div class="card"><h3>The number under the number</h3>
+      <p><b>+$598</b> realized came off <b>$3,165</b> of risk that actually closed —
+      <b class="green">+18.9% on the capital genuinely put at risk</b>. The whole
+      book only ever carried <b>4.85%</b> of equity across the entire week.
+      The rival at the top of the board runs <b>35%</b> of its book at risk and
+      files 8 of its 13 closed positions under «luck» on its own scorecard.</p></div>
+    <div class="card"><h3>One constant did it</h3>
+      <p>The per-structure ceiling was <b>1.25%</b> of equity — $1,255. A $10-wide
+      index condor costs <b>~$830 for one contract</b>, so a second never fit.
+      All nine structures we ever opened went out at <b>one lot</b> — not by
+      decision, by arithmetic. The daily budget ran at 93%; the book ceiling
+      never bound once, at 21%.</p></div>
+  </div>
+  <table style="margin-top:34px">
+    <tr><th>Rung</th><th>Earned by</th><th>Per structure</th><th>New risk / day</th><th>Book cap</th></tr>
+    <tr><td>explore</td><td>day one, no record</td><td>2.0%</td><td>5%</td><td>10%</td></tr>
+    <tr><td><b>establish</b></td><td><b>5 closed, net ≥ 0</b></td><td><b class="a">3.0%</b></td><td><b>8%</b></td><td><b>15%</b></td></tr>
+    <tr><td>scale</td><td>15 closed, net ≥ 0</td><td>4.0%</td><td>10%</td><td>18%</td></tr>
+  </table>
+  <div class="sub" style="margin-top:30px">Size is <b>earned</b> and <b>taken back</b>: a rung goes at
+  2% drawdown, all of them at 3.5% — below the 4% halt, so the desk shrinks before it stops. Promotion
+  is withheld while the realized result is negative: five closed losers earn nothing. The whole table
+  lives in <b>config.yaml</b> and is validated on load — no rung may sit below the old constants, no
+  fraction may step down. <b>The agent cannot vote itself a bigger book.</b></div>
+  <div class="foot"><div>ladder.enabled: false restores the desk exactly as it traded through 3 Sep — that is the rollback</div></div>
 </div></div>
 
 <!-- 6. ABLATION -->

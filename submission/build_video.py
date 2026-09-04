@@ -61,14 +61,28 @@ NARRATION = {
         "case principle as Alpaca's universal spread rule for options margin, applied "
         "one step earlier."),
     45: ("shield.png",
-        "Here is the desk deciding this afternoon, with nobody at the keyboard. The "
-        "jobs report lands tomorrow morning. The desk measured how close each "
+        "Here is the desk deciding on its own, with nobody at the keyboard. The "
+        "jobs report was landing the next morning. The desk measured how close each "
         "position's short strike sat to the market — not in percent, but in units of "
         "the daily move the option market itself was pricing. Two S and P condors sat "
         "inside one and a half of those moves. Two Nasdaq condors sat almost three "
         "away. It closed the two a gap would reach, kept the two it would not, and "
         "wrote the reason into the journal in plain language. A blanket flatten would "
         "have paid the spread on four positions to protect two."),
+    55: ("slide6.png",
+        "Now the part we are least comfortable saying out loud, because it is the "
+        "honest one. We made six hundred dollars. That sounds small — until you ask "
+        "what it was made ON. Six hundred came off three thousand one hundred and "
+        "sixty five dollars of risk that actually closed. That is nearly nineteen "
+        "percent on the capital we genuinely put at risk. We were never behind on "
+        "decisions. We were behind on size, and we can point at the exact line. Our "
+        "ceiling was one and a quarter percent of equity per structure. A ten dollar "
+        "wide index condor costs eight hundred and thirty for a single contract, so a "
+        "second one never fit. Every position we ever opened went out at one lot — "
+        "not by choice, by arithmetic. So size is now earned: two, three, then four "
+        "percent, at zero, five and fifteen closed trades, and only while the realized "
+        "result is non negative. Drawdown takes the rungs back before the halt does. "
+        "The agent cannot vote itself a bigger book."),
     5: ("ablation.png",
         "We didn't just claim the design matters — we measured it, live. Four books "
         "run on identical inputs: the real agent; the same strategy with gates "
@@ -88,18 +102,10 @@ NARRATION = {
         "credentials required."),
     7: ("account.png",
         "The result, on paper account P A 3 9 C 1 0 Y A M Y Q: a small, explained, "
-        "risk boxed P and L. Six hundred dollars realized. Now here is the honest "
-        "number underneath it. That six hundred was made on three thousand one "
-        "hundred and sixty five dollars of risk that actually closed — a return of "
-        "nearly nineteen percent on the capital we genuinely put at risk. We are not "
-        "behind on decisions. We were behind on size, and we can prove exactly why: "
-        "our per structure ceiling was one and a quarter percent of equity, and a ten "
-        "dollar wide index condor costs eight hundred and thirty for a single "
-        "contract. A second one never fit. Every position we ever opened went out at "
-        "one lot — not by choice, by arithmetic. So size is now earned. Two, three, "
-        "then four percent per structure, at zero, five and fifteen closed trades, "
-        "and only while the realized result is non negative. Drawdown takes the rungs "
-        "back before the halt does. The agent cannot vote itself a bigger book."),
+        "risk boxed P and L. Every position is defined risk. The worst case this book "
+        "ever carried never left three and a half percent of equity, and the jobs "
+        "report that landed on deadline morning was de-risked by rule, the day "
+        "before — the desk opened nothing that Thursday, by design."),
     8: ("cover.png",
         "THETA DESK. Language models decide whether it's wise. Code decides whether "
         "it's allowed. Built on Alpaca's Trading API, M C P server, and C L I, by "
@@ -165,7 +171,7 @@ def split_slides() -> None:
     html = (SUB / "slides.html").read_text(encoding="utf-8")
     head, *slides = html.split('<div class="slide">')
     for i, body in enumerate(slides, 1):
-        if i not in (2, 3, 4):
+        if i not in (2, 3, 4, 6):
             continue
         page = head + '<div class="slide">' + body.split('<div class="slide">')[0]
         p = WORK / f"slide{i}.html"
