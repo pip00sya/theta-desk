@@ -81,7 +81,7 @@ function nearest(arr, t) {
    ruled in, so the gaps stay visible where they matter. */
 function chart(series, o) {
   o = o || {};
-  var W = 1000, H = o.h || 300, P = { t: 16, r: 62, b: o.xs ? 26 : 14, l: 6 };
+  var W = 1000, H = o.h || 300, P = { t: 18, r: 66, b: o.xs ? 28 : 14, l: 6 };
   var all = [];
   series.forEach(function (s) { if (!s.hidden) s.pts.forEach(function (p) {
     if (p != null) all.push(p); }); });
@@ -93,7 +93,11 @@ function chart(series, o) {
   var n = Math.max.apply(null, series.map(function (s) { return s.pts.length; }));
   var X = function (i) { return P.l + (i / Math.max(1, n - 1)) * (W - P.l - P.r); };
   var Y = function (v) { return P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b); };
+  var uid = 'g' + (chart.seq = (chart.seq || 0) + 1);
   var out = ['<svg viewBox="0 0 ' + W + ' ' + H + '" role="img">'];
+  if (o.area) out.push('<defs><linearGradient id="' + uid + '" x1="0" y1="0" ' +
+    'x2="0" y2="1"><stop offset="0" stop-color="' + o.area + '" stop-opacity=".26"/>' +
+    '<stop offset="1" stop-color="' + o.area + '" stop-opacity="0"/></linearGradient></defs>');
 
   for (var g = 0; g <= 4; g++) {
     var v = lo + (hi - lo) * (g / 4), y = Y(v);
@@ -112,11 +116,17 @@ function chart(series, o) {
     out.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + Y(0) + '" y2="' + Y(0) +
       '" stroke="rgba(255,255,255,.22)" stroke-width="1"/>');
   }
+  var lastLabel = -1e9;
   (o.sessions || []).forEach(function (s) {
     out.push('<line x1="' + X(s.i) + '" x2="' + X(s.i) + '" y1="' + P.t + '" y2="' + (H - P.b) +
       '" stroke="rgba(255,255,255,.06)" stroke-width="1"/>');
-    if (o.xs) out.push('<text x="' + X(s.i) + '" y="' + (H - 8) + '" fill="#3A3A38" ' +
-      'text-anchor="middle" font-family="IBM Plex Mono" font-size="10">' + E(s.t) + '</text>');
+    /* two sessions can sit a couple of ticks apart; a label every time would
+       overprint the one before it */
+    if (o.xs && X(s.i) - lastLabel > 56) {
+      lastLabel = X(s.i);
+      out.push('<text x="' + X(s.i) + '" y="' + (H - 8) + '" fill="#3A3A38" ' +
+        'text-anchor="middle" font-family="IBM Plex Mono" font-size="10">' + E(s.t) + '</text>');
+    }
   });
   if (o.band && series.length > 1 && !series[0].hidden && !series[1].hidden) {
     var a = series[0].pts, b = series[1].pts, up = [], dn = [];
@@ -136,11 +146,24 @@ function chart(series, o) {
       d += (on ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p).toFixed(1) + ' ';
       on = true; last = p; li = i;
     });
+    if (o.area && s.fill) {
+      var base = Y(o.zero ? Math.max(lo, Math.min(hi, 0)) : lo);
+      out.push('<path d="' + d + 'L' + X(li).toFixed(1) + ' ' + base.toFixed(1) + ' L' +
+        X(0).toFixed(1) + ' ' + base.toFixed(1) + ' Z" fill="url(#' + uid + ')" stroke="none"/>');
+    }
     out.push('<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' +
       (s.w || 1.7) + '" stroke-linejoin="round" stroke-linecap="round"/>');
-    if (last != null && s.tip)
+    if (last != null && s.tip) {
       out.push('<circle cx="' + X(li).toFixed(1) + '" cy="' + Y(last).toFixed(1) +
-        '" r="2.6" fill="' + s.color + '"/>');
+        '" r="3.2" fill="' + s.color + '"/>');
+      out.push('<circle cx="' + X(li).toFixed(1) + '" cy="' + Y(last).toFixed(1) +
+        '" r="7" fill="none" stroke="' + s.color + '" stroke-opacity=".28"/>');
+      out.push('<rect x="' + (W - P.r + 4) + '" y="' + (Y(last) - 9).toFixed(1) + '" width="56" ' +
+        'height="18" rx="3" fill="' + s.color + '"/>');
+      out.push('<text x="' + (W - P.r + 32) + '" y="' + (Y(last) + 3.5).toFixed(1) +
+        '" text-anchor="middle" fill="#08080A" font-family="IBM Plex Mono" font-size="10.5" ' +
+        'font-weight="500">' + E(o.fmt(last)) + '</text>');
+    }
   });
   out.push('</svg>');
   return out.join('');
@@ -157,7 +180,7 @@ function sessionMarks(rows) {
 /* ---- state -------------------------------------------------------------- */
 var D = null;
 var S = { tab: 'desk', books: { real: 1, shadow_nogates: 1, shadow_nohedge: 1, baseline_naive: 1 },
-          pos: 'open', logf: 'all', gate: null, open: {}, sigv: 'ivrv' };
+          pos: 'open', logf: 'all', gate: null, open: {}, sigv: 'ivrv', sym: null };
 
 var BOOKS = [
   { k: 'real',           n: 'real',      c: '#F4F4F1', w: 2.1, tip: 1 },
@@ -210,13 +233,13 @@ function drawLeft() {
   });
   var prim = D.params.universe.primary;
   var uni = (D.params.universe.underlyings || []).map(function (sym) {
-    var p = sym === prim;
-    return '<div class="ritem' + (p ? ' on' : ' mute') + '">' +
+    var f = symFacts(sym), on = sym === curSym();
+    return '<div class="ritem' + (on ? ' on' : '') + '" data-sym="' + E(sym) + '">' +
       '<span class="n">' + E(sym) + '</span><span class="v">' +
-      (p ? '+' + (D.signals.atm_iv * 100 - D.signals.rv20 * 100).toFixed(2)
-         : (alt[sym] ? alt[sym].tried + ' tried' : '—')) + '</span>' +
-      '<span class="t">' + (p ? 'vol ' + E(D.signals.regime)
-        : alt[sym] && alt[sym].taken ? 'rotated in' : 'no entry') + '</span></div>';
+      (f.primary ? '+' + (D.signals.atm_iv * 100 - D.signals.rv20 * 100).toFixed(2)
+         : (f.open + f.closed) ? (f.open + f.closed) + ' held' : f.tried + ' tried') + '</span>' +
+      '<span class="t">' + (f.primary ? 'vol ' + E(D.signals.regime)
+        : f.taken ? 'rotated in ' + f.taken + 'x' : 'never taken') + '</span></div>';
   }).join('');
   var books = BOOKS.map(function (b) {
     var a = D.series.books[b.k] || [], fin = a.length ? a[a.length - 1].v : null;
@@ -232,12 +255,36 @@ function drawLeft() {
     '<div class="rgrp"><span class="lab">Universe · ' +
       (D.params.universe.underlyings || []).length + '</span>' + uni +
       '<p class="rnote">The signal is measured on the primary chain only. The others are entered ' +
-      'when the primary has nothing that clears the floor.</p></div>' +
+      'when the primary has nothing that clears the floor. Click one to inspect it.</p></div>' +
     '<div class="rgrp"><span class="lab">Books · 4</span>' + books +
       '<p class="rnote">Click to show or hide a curve on the ablation chart.</p></div>' +
     '<div class="rgrp"><span class="lab">Sessions · ' + (D.series.daily || []).length + '</span>' +
       day + '<p class="rnote">Entries opened against gate rejections, per session.</p></div>';
 }
+
+/* What the desk knows about one underlying. The signal series exists only for
+   the primary chain — that is a fact about the strategy, not a gap in the page —
+   so for the others this reports what there is: rotation attempts, what was
+   taken from them, and the structures actually held. */
+function symFacts(sym) {
+  var f = { sym: sym, tried: 0, taken: 0, spot: null, open: 0, closed: 0, risk: 0, pnl: 0,
+            primary: sym === D.params.universe.primary };
+  (D.series.alt || []).forEach(function (a) {
+    if (a.sym !== sym) return;
+    f.tried++;
+    if (a.taken) { f.taken++; if (a.spot) f.spot = a.spot; }
+  });
+  ['open', 'closed', 'unfilled'].forEach(function (b) {
+    (D.positions[b] || []).forEach(function (q) {
+      if (q.legs[0].symbol.slice(0, 3) !== sym) return;
+      if (b === 'open') { f.open++; f.risk += q.max_loss || 0; }
+      if (b === 'closed') { f.closed++; f.pnl += q.pnl || 0; }
+    });
+  });
+  if (f.primary) f.spot = D.signals.spot;
+  return f;
+}
+function curSym() { return S.sym || D.params.universe.primary; }
 
 /* ---- tab bar and KPI strip ---------------------------------------------- */
 function drawTabs() {
@@ -297,34 +344,57 @@ function bar(l, v, max, gate) {
 /* ---- workspace · desk --------------------------------------------------- */
 function paneDesk() {
   var sg = D.signals, prem = (sg.atm_iv - sg.rv20) * 100;
+  var f = symFacts(curSym());
   var rows = D.series.books.real || [], lim = D.limits;
   var openRisk = (D.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
   var biggest = Math.max.apply(null, (D.positions.open || [])
     .map(function (p) { return p.max_loss || 0; }).concat([0]));
   var integ = D.series.integrity || [];
   return kstrip() +
-    '<div class="hero"><span class="sym">' + E(D.params.universe.primary) + '</span>' +
-      '<span class="px">' + Number(sg.spot).toFixed(2) + '</span>' +
-      '<span class="chip hot">vol ' + E(sg.regime) + '</span>' +
-      '<span class="chip">data ' + E(sg.data_quality || 'full') + '</span>' +
-      '<span class="chip ' + (D.verification.chain_ok ? 'g' : 'r') + '">chain ' +
-      (D.verification.chain_ok ? 'intact' : 'broken') + '</span></div>' +
-    '<div class="big4">' +
-      b4('Implied · ATM', pct(sg.atm_iv) + '%', 'annualised', 'am') +
-      b4('Realized · 20d', pct(sg.rv20) + '%', 'what the index actually did') +
-      b4('Premium', '+' + prem.toFixed(2), 'implied minus realized, in vol points') +
-      b4('Ratio', (sg.atm_iv / sg.rv20).toFixed(2) + '×', 'rich above ' +
-         D.params.regime.vrp_rich_threshold.toFixed(2)) +
-    '</div>' +
-    '<p class="verdict">Implied volatility exceeds realized by <b>' + prem.toFixed(2) +
-      ' points</b>. The market is charging for movement that is not showing up, so the desk sells ' +
-      'defined-risk premium and hedges the tail. It takes no view on direction, ever.</p>' +
-    block('Equity', 'the real book, marked every tick since 28 Aug',
+    '<div class="hero"><span class="sym">' + E(f.sym) + '</span>' +
+      '<span class="px">' + (f.spot ? Number(f.spot).toFixed(2) : '—') + '</span>' +
+      (f.primary
+        ? '<span class="chip hot">vol ' + E(sg.regime) + '</span>' +
+          '<span class="chip">data ' + E(sg.data_quality || 'full') + '</span>' +
+          '<span class="chip ' + (D.verification.chain_ok ? 'g' : 'r') + '">chain ' +
+          (D.verification.chain_ok ? 'intact' : 'broken') + '</span>'
+        : '<span class="chip">' + (f.taken ? 'rotation underlying' : 'never entered') + '</span>' +
+          '<span class="chip">no signal series</span>') + '</div>' +
+    (f.primary
+      ? '<div class="big4">' +
+          b4('Implied · ATM', pct(sg.atm_iv) + '%', 'annualised', 'am') +
+          b4('Realized · 20d', pct(sg.rv20) + '%', 'what the index actually did') +
+          b4('Premium', '+' + prem.toFixed(2), 'implied minus realized, in vol points') +
+          b4('Ratio', (sg.atm_iv / sg.rv20).toFixed(2) + 'x', 'rich above ' +
+             D.params.regime.vrp_rich_threshold.toFixed(2)) +
+        '</div>' +
+        '<p class="verdict">Implied volatility exceeds realized by <b>' + prem.toFixed(2) +
+        ' points</b>. The market is charging for movement that is not showing up, so the desk ' +
+        'sells defined-risk premium and hedges the tail. It takes no view on direction, ever.</p>'
+      : '<div class="big4">' +
+          b4('Rotation attempts', n0(f.tried), 'ticks where the primary had nothing to trade') +
+          b4('Chains taken', n0(f.taken), f.taken ? 'a candidate was built from this chain'
+             : 'never cleared the credit floor', f.taken ? 'am' : '') +
+          b4('Structures held', n0(f.open + f.closed), f.open + ' open, ' + f.closed + ' closed') +
+          b4('Worst case held', usd(f.risk, 0), f.risk ? 'defined before entry'
+             : 'nothing at risk here') +
+        '</div>' +
+        '<p class="verdict">The desk measures its signal on <b>' + E(D.params.universe.primary) +
+        '</b> only — one chain, one volatility surface, no cross-name inference. ' + E(f.sym) +
+        ' is a rotation underlying: it is considered when the primary has nothing that clears the ' +
+        'credit and liquidity floor, and ' + (f.taken
+          ? 'a candidate was built from its chain ' + f.taken + ' times.'
+          : 'it has never produced one that cleared the floor.') + '</p>') +
+    block('Equity', 'the real book, marked every tick · ' + rows.length + ' marks · 5 sessions',
       '<span class="seg"><button data-tab="books">compare four books →</button></span>',
       '<div class="chart">' + chart([{ pts: rows.map(function (p) { return p.v; }),
-        color: '#F4F4F1', w: 2.1, tip: 1 }],
-        { h: 250, zero: 1, xs: 1, sessions: sessionMarks(rows),
-          fmt: function (x) { return money(x, 0); } }) + '</div>', true) +
+        color: '#F4F4F1', w: 2.2, tip: 1, fill: 1 }],
+        { h: 320, zero: 1, xs: 1, area: '#F2C14E', sessions: sessionMarks(rows),
+          fmt: function (x) { return money(x, 0); } }) + '</div>' +
+      '<div class="leg"><span>peak ' + money(Math.max.apply(null, rows.map(function (p) {
+        return p.v; })), 0) + '</span><span>trough ' + money(Math.min.apply(null,
+        rows.map(function (p) { return p.v; })), 0) + '</span>' +
+      '<span>realized ' + money(D.book.realized, 0) + ' of it is banked</span></div>', true) +
     '<div class="grid2">' +
       block('Two hard ceilings', 'percentages of equity, fixed in config and enforced in code', '',
         ceil('Any single structure', biggest, lim.per_structure,
@@ -410,7 +480,7 @@ function paneBooks() {
   var s = D.series;
   var series = BOOKS.map(function (b) {
     return { pts: (s.books[b.k] || []).map(function (p) { return p.v; }), color: b.c, w: b.w,
-             tip: b.tip, hidden: !S.books[b.k] };
+             tip: b.tip, fill: b.k === 'real', hidden: !S.books[b.k] };
   });
   var lastOf = function (k) { var a = s.books[k] || []; return a.length ? a[a.length - 1].v : null; };
   var rows = BOOKS.map(function (b) {
@@ -427,7 +497,7 @@ function paneBooks() {
       '<span class="seg">' + BOOKS.map(function (b) {
         return '<button data-book="' + b.k + '" aria-selected="' + !!S.books[b.k] + '">' +
           b.n + '</button>'; }).join('') + '</span>',
-      '<div class="chart">' + chart(series, { h: 320, zero: 1, xs: 1,
+      '<div class="chart">' + chart(series, { h: 340, zero: 1, xs: 1, area: '#F2C14E',
         sessions: sessionMarks(s.books.real || []),
         fmt: function (x) { return money(x, 0); } }) + '</div>' +
       '<div class="leg">' + BOOKS.map(function (b) {
@@ -808,6 +878,8 @@ function renderAll() {
 document.addEventListener('click', function (e) {
   var t = e.target.closest('[data-tab]');
   if (t) { setTab(t.dataset.tab); return; }
+  var sy = e.target.closest('[data-sym]');
+  if (sy) { S.sym = sy.dataset.sym; setTab('desk'); drawLeft(); return; }
   var b = e.target.closest('[data-book]');
   if (b) { S.books[b.dataset.book] = !S.books[b.dataset.book]; drawLeft(); drawPane(); return; }
   var p = e.target.closest('[data-pos]');

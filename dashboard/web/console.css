@@ -162,7 +162,7 @@ button{font:inherit}
 .bb.flush{padding:0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .grid2.narrow{grid-template-columns:296px 1fr}
-@media (max-width:1240px){.grid2,.grid2.narrow{grid-template-columns:1fr}}
+@media (max-width:1000px){.grid2,.grid2.narrow{grid-template-columns:1fr}}
 
 .seg{display:flex;gap:2px}
 .seg button{appearance:none;background:none;border:0;cursor:pointer;padding:4px 10px;
