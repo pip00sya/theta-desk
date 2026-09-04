@@ -1,414 +1,368 @@
 <!doctype html>
-<html lang="en" data-density="compact">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>THETA DESK · live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="report.css">
 </head>
 <body>
 
-<!-- ===================================================================== -->
-<!-- XS DEGRADED-MODE BAR  (§4.5) — sibling of #shell; CSS reveals it only  -->
-<!-- below 1000px wide, below 560px tall, or in portrait.                   -->
-<!-- ===================================================================== -->
-<div id="xs-warn" role="status">THETA DESK is a landscape instrument — 1000×700 minimum. Rotate or widen; showing the stacked fallback.</div>
+<div class="top"><div class="wrap">
+  <span class="brand">THETA DESK</span>
+  <span class="tag">An autonomous options desk on Alpaca paper trading. It prices volatility, not direction.</span>
+  <span class="chips" id="chips"></span>
+</div></div>
 
-<div id="shell">
+<main class="wrap" id="page">
+  <div class="err" id="boot">Loading data.json…</div>
+</main>
 
-  <!-- =================================================================== -->
-  <!-- P00 · STATUS RAIL — shell row 1, 26px, six zones                     -->
-  <!-- =================================================================== -->
-  <header id="p-status" class="rail" data-panel="status" data-area="p00">
-    <div class="rz" id="st-market"><span data-market>—</span></div>
-    <div class="rz" id="st-asof"><button type="button" class="rbtn" data-asof aria-pressed="false" title="toggle absolute / relative timestamps page-wide">as of —</button></div>
-    <div class="rz" id="st-tick"><button type="button" class="rbtn" data-tick title="jump to the last tick and lock the cursor">tick —</button></div>
-    <div class="rz" id="st-mode"><span class="chip" data-mode>—</span></div>
-    <div class="rz" id="st-chips">
-      <button type="button" class="chip chip-integrity" data-integrity>integrity —</button>
-      <button type="button" class="chip chip-chain" data-chain title="copy the verify command">chain —</button>
-    </div>
-    <div class="rz" id="st-right">
-      <button type="button" class="rbtn" id="st-refresh" data-refresh title="fetch data.json again">⟳</button>
-      <span class="rout" id="st-refresh-out" data-refresh-out></span>
-      <button type="button" class="rbtn mono" id="st-commit" data-commit title="copy commit hash">—</button>
-      <button type="button" class="rbtn" id="st-keymap" data-keymap aria-haspopup="dialog" aria-controls="ov-keymap" title="keyboard map (?)">?</button>
-    </div>
-  </header>
+<script>
+/* ===========================================================================
+   One file in, one page out. Every figure on this page is a field of
+   dashboard/web/data.json, which tools/site_data.py regenerates on every tick.
+   Nothing is computed here that is not arithmetic on those fields, so this
+   page cannot disagree with any other page in the submission.
+   ======================================================================== */
+(function () {
+'use strict';
 
-  <!-- =================================================================== -->
-  <!-- P01 · COMMAND STRIP — shell row 2, 52px                              -->
-  <!-- =================================================================== -->
-  <div id="p-command" class="cmd" data-panel="command" data-area="p01">
+/* ---- formatting --------------------------------------------------------- */
+var E = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+  return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+function money(v, d) {
+  if (v == null || isNaN(v)) return '—';
+  d = d == null ? 2 : d;
+  return (v < 0 ? '−' : '+') + '$' + Math.abs(v).toLocaleString('en-US',
+    { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function plain(v, d) {
+  if (v == null || isNaN(v)) return '—';
+  d = d == null ? 2 : d;
+  return '$' + Number(v).toLocaleString('en-US',
+    { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function pct(v, d) { return v == null ? '—' : (v * 100).toFixed(d == null ? 2 : d) + '%'; }
+function num(v) { return v == null ? '—' : Number(v).toLocaleString('en-US'); }
+function when(t) { return t ? String(t).slice(5, 16).replace('T', ' ') + 'Z' : '—'; }
+function ago(iso) {
+  if (!iso) return '';
+  var ms = Date.now() - Date.parse(iso.length <= 19 ? iso + 'Z' : iso);
+  if (isNaN(ms)) return '';
+  var h = Math.floor(ms / 3.6e6), m = Math.round((ms % 3.6e6) / 6e4);
+  return h > 0 ? h + 'h ' + m + 'm ago' : m + 'm ago';
+}
 
-    <div class="cmd-funnels" id="cmd-funnels">
-      <div class="funnel" id="cf-cycle"><span class="fl">CYCLE</span><span class="fv" data-v>—</span></div>
-      <div class="funnel" id="cf-session"><span class="fl">SESSION</span><span class="fv" data-v>—</span></div>
-      <div class="funnel" id="cf-book"><span class="fl">BOOK</span><span class="fv" data-v>—</span></div>
-    </div>
+/* ---- the two charts this page needs, drawn by hand ---------------------- */
+/* An ordinal index, not wall-clock: the series are sampled every 15 minutes
+   inside sessions and not at all between them, so a time axis would be mostly
+   empty gap. One tick is one step. */
+function lineChart(series, opt) {
+  opt = opt || {};
+  var W = 1000, H = opt.height || 260, P = { t: 14, r: 58, b: 22, l: 8 };
+  var all = [];
+  series.forEach(function (s) { s.pts.forEach(function (p) { if (p != null) all.push(p); }); });
+  if (!all.length) return '<div class="sub">no points</div>';
+  var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+  if (opt.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  var pad = (hi - lo) * 0.12 || 1; lo -= pad; hi += pad;
+  var n = Math.max.apply(null, series.map(function (s) { return s.pts.length; }));
+  var X = function (i) { return P.l + (i / Math.max(1, n - 1)) * (W - P.l - P.r); };
+  var Y = function (v) { return P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b); };
+  var out = ['<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img">'];
 
-    <div class="cmd-kpis" id="cmd-kpis">
-      <span class="kpi" data-kpi="book"><span class="kl">BOOK P&amp;L</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
-      <span class="kpi" data-kpi="realized"><span class="kl">REALIZED</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
-      <span class="kpi" data-kpi="unrealized"><span class="kl">UNREALIZED</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
-      <button type="button" class="kpi" data-kpi="refused" data-tab="refusals"><span class="kl">REFUSED</span><span class="kv" data-v>—</span></button>
-      <button type="button" class="kpi" data-kpi="structures" data-tab="positions"><span class="kl">STRUCTURES</span><span class="kv" data-v>—</span></button>
-      <button type="button" class="kpi" data-kpi="journal" data-tab="all"><span class="kl">JOURNAL</span><span class="kv" data-v>—</span></button>
-    </div>
+  // horizontal guides, four of them, labelled on the right
+  for (var g = 0; g <= 3; g++) {
+    var v = lo + (hi - lo) * (g / 3), y = Y(v);
+    out.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y + '" y2="' + y +
+      '" stroke="#26262A" stroke-width="1"/>');
+    out.push('<text x="' + (W - P.r + 8) + '" y="' + (y + 4) +
+      '" fill="#66665F" font-family="IBM Plex Mono, monospace" font-size="11">' +
+      E(opt.fmt ? opt.fmt(v) : v.toFixed(0)) + '</text>');
+  }
+  if (opt.zero && lo < 0 && hi > 0) {
+    out.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + Y(0) + '" y2="' + Y(0) +
+      '" stroke="#4A4A50" stroke-width="1" stroke-dasharray="3 3"/>');
+  }
+  if (opt.band) {                       // fill between the first two series
+    var a = series[0].pts, b = series[1].pts, top = [], bot = [];
+    for (var i = 0; i < n; i++) {
+      if (a[i] == null || b[i] == null) continue;
+      top.push(X(i) + ',' + Y(a[i])); bot.unshift(X(i) + ',' + Y(b[i]));
+    }
+    if (top.length) out.push('<polygon points="' + top.concat(bot).join(' ') +
+      '" fill="' + opt.band + '" opacity="0.16"/>');
+  }
+  series.forEach(function (s) {
+    var d = '', started = false;
+    s.pts.forEach(function (p, i) {
+      if (p == null) { started = false; return; }
+      d += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p).toFixed(1) + ' ';
+      started = true;
+    });
+    out.push('<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' +
+      (s.w || 2) + '" stroke-linejoin="round" stroke-linecap="round"' +
+      (s.dash ? ' stroke-dasharray="4 4"' : '') + ' opacity="' + (s.op || 1) + '"/>');
+  });
+  (opt.marks || []).forEach(function (m) {
+    out.push('<line x1="' + X(m.i) + '" x2="' + X(m.i) + '" y1="' + P.t + '" y2="' + (H - P.b) +
+      '" stroke="' + m.color + '" stroke-width="1" opacity="0.5"/>');
+  });
+  (opt.xlabels || []).forEach(function (l) {
+    out.push('<text x="' + X(l.i) + '" y="' + (H - 5) + '" fill="#66665F" text-anchor="middle" ' +
+      'font-family="IBM Plex Mono, monospace" font-size="11">' + E(l.t) + '</text>');
+  });
+  out.push('</svg>');
+  return out.join('');
+}
 
-    <div class="cmd-controls" id="cmd-controls">
+/* ---- render ------------------------------------------------------------- */
+function render(d) {
+  var S = [];
+  var br = d.broker || {}, bk = d.book || {}, sg = d.signals || {}, gk = d.greeks || {};
+  var v = d.verification || {}, c = d.counts || {}, lim = d.limits || {}, ser = d.series || {};
 
-      <div class="ctlg"><span class="ctll">RANGE</span>
-        <div class="seg" role="radiogroup" aria-label="Range" id="ctl-range" data-ctl="range">
-          <button type="button" role="radio" aria-checked="false" data-v="1d">1D</button>
-          <button type="button" role="radio" aria-checked="false" data-v="3d">3D</button>
-          <button type="button" role="radio" aria-checked="false" data-v="all">ALL</button>
-        </div>
-      </div>
+  /* status chips ---------------------------------------------------------- */
+  var chips = [];
+  chips.push('<span class="chip warn">' + E((d.kv && d.kv.last_tick_mode) === 'market_closed'
+    ? 'MARKET CLOSED' : 'MARKET OPEN') + '</span>');
+  chips.push('<span class="chip">last tick <b>' + E(when(d.last_tick_utc)) + '</b> · ' +
+    E(ago(d.last_tick_utc)) + '</span>');
+  chips.push('<span class="chip ' + (v.chain_ok ? 'live' : '') + '">chain ' +
+    (v.chain_ok ? 'intact' : 'BROKEN') + ' · <b>' + num(v.journal_entries) + '</b> entries</span>');
+  document.getElementById('chips').innerHTML = chips.join('');
 
-      <div class="ctlg"><span class="ctll">AXIS</span>
-        <div class="seg" role="radiogroup" aria-label="Axis mode" id="ctl-axis" data-ctl="axis">
-          <button type="button" role="radio" aria-checked="false" data-v="session">SESSION</button>
-          <button type="button" role="radio" aria-checked="false" data-v="time">TIME</button>
-        </div>
-      </div>
+  /* 1 — the numbers ------------------------------------------------------- */
+  var openRisk = (d.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
+  S.push('<section><div class="h"><h2>Where the account stands</h2>' +
+    '<span class="n">ALPACA PAPER · ' + E(d.account) + '</span></div>' +
+    '<p class="lede">The desk started with $100,000. <b>' + plain(br.equity) + '</b> is what the ' +
+    'broker says the account is worth right now; the rest of this page explains how it got there ' +
+    'and what it refused to do along the way.</p>' +
+    '<div class="cards">' +
+    card('Account equity', plain(br.equity), 'Alpaca, read at ' + E(String(br.asof_utc || '').slice(11, 16)) + 'Z') +
+    card('Profit and loss', money(bk.pnl), 'marked at the ' + E(String(bk.marked_at || '').slice(11, 16)) + 'Z tick · ' + (bk.pnl_pct >= 0 ? '+' : '−') + Math.abs(bk.pnl_pct).toFixed(2) + '%') +
+    card('Banked', money(bk.realized), num(c.structures_closed) + ' closed trades · cannot be lost') +
+    card('At risk', plain(openRisk, 0), c.structures_open + ' open structures · worst case, defined') +
+    card('Refused', num(d.refusals.all), 'times a rule stopped a trade this week', 'acc') +
+    '</div></section>');
 
-      <div class="ctlg"><span class="ctll">BOOKS</span>
-        <div class="chips" id="ctl-books" data-ctl="books">
-          <button type="button" class="chip bk bk-real" aria-pressed="true" data-v="real">REAL</button>
-          <button type="button" class="chip bk bk-nogates" aria-pressed="true" data-v="shadow_nogates">NO-GATES</button>
-          <button type="button" class="chip bk bk-nohedge" aria-pressed="true" data-v="shadow_nohedge">NO-HEDGE</button>
-          <button type="button" class="chip bk bk-naive" aria-pressed="true" data-v="baseline_naive">NAIVE</button>
-        </div>
-      </div>
+  /* 2 — the signal -------------------------------------------------------- */
+  var sig = (ser.signal || []).filter(function (p) { return p.iv && p.iv < 0.4; });
+  var ivS = { pts: sig.map(function (p) { return p.iv * 100; }), color: '#FFD400', w: 2 };
+  var rvS = { pts: sig.map(function (p) { return p.rv * 100; }), color: '#7FA6C9', w: 2 };
+  var premium = (sg.atm_iv - sg.rv20) * 100;
+  S.push('<section><div class="h"><h2>What the desk sees</h2><span class="n">1 · THE SIGNAL</span></div>' +
+    '<p class="lede">Options are priced off <b>implied volatility</b> — how much the market ' +
+    'expects the index to move. <b>Realized volatility</b> is how much it actually moved. When ' +
+    'implied sits above realized, sellers of options are being overpaid for risk that is not ' +
+    'showing up. That gap is the only thing this desk trades. It never predicts direction.</p>' +
+    '<div class="cards">' +
+    card('Implied · ATM', pct(sg.atm_iv), 'what the market charges', 'acc') +
+    card('Realized · 20 day', pct(sg.rv20), 'what the index actually did') +
+    card('The gap', '+' + premium.toFixed(2) + ' pts', (sg.atm_iv / sg.rv20).toFixed(2) + '× — implied over realized') +
+    card('Verdict', String(sg.regime || '').toUpperCase(), sg.regime === 'rich'
+      ? 'sell defined-risk premium' : sg.regime === 'cheap' ? 'buy convexity' : 'stand down', 'acc') +
+    '</div>' +
+    '<div class="panel"><h3>Implied against realized, every tick</h3>' +
+    '<p class="sub">' + sig.length + ' readings over 5 sessions. The shaded band is the premium ' +
+    'being harvested. Two readings are excluded from the scale: the data feed halved the price ' +
+    'after the close and the desk quarantined those marks itself.</p>' +
+    lineChart([ivS, rvS], { height: 240, band: '#FFD400', fmt: function (x) { return x.toFixed(1) + '%'; } }) +
+    '<div class="legend"><span><i style="background:#FFD400"></i>implied volatility</span>' +
+    '<span><i style="background:#7FA6C9"></i>realized volatility</span>' +
+    '<span><i style="background:rgba(255,212,0,.3)"></i>the premium we sell</span></div>' +
+    '</div></section>');
 
-      <div class="ctlg"><span class="ctll">QUALITY</span>
-        <div class="seg" role="radiogroup" aria-label="Mark quality" id="ctl-quality" data-ctl="quality">
-          <button type="button" role="radio" aria-checked="false" data-v="all">ALL</button>
-          <button type="button" role="radio" aria-checked="false" data-v="clean">CLEAN</button>
-        </div>
-        <span class="ctln" data-quality-excluded></span>
-      </div>
+  /* 3 — what it did ------------------------------------------------------- */
+  var BK = [
+    { k: 'real', label: 'THETA DESK', color: '#F2F2F0', w: 2.4 },
+    { k: 'shadow_nogates', label: 'without the gates', color: '#5B9DFF', w: 1.6 },
+    { k: 'shadow_nohedge', label: 'without the hedge', color: '#9A9A94', w: 1.6 },
+    { k: 'baseline_naive', label: 'naive premium selling', color: '#6E6A5A', w: 1.6 }
+  ];
+  var books = BK.map(function (b) {
+    return { pts: (ser.books[b.k] || []).map(function (p) { return p.v; }),
+             color: b.color, w: b.w, op: b.k === 'real' ? 1 : 0.8 };
+  });
+  var last = function (k) { var a = ser.books[k] || []; return a.length ? a[a.length - 1].v : null; };
+  var rows = BK.map(function (b) {
+    var fin = last(b.k), delta = b.k === 'real' ? null : last('real') - fin;
+    return '<tr><td>' + '<span style="color:' + b.color + '">■</span> ' + E(b.label) + '</td>' +
+      '<td class="num">' + money(fin) + '</td>' +
+      '<td class="num">' + (delta == null ? '<span class="t">the book we ran</span>' : money(delta)) + '</td></tr>';
+  }).join('');
+  S.push('<section><div class="h"><h2>What it did, and what the rules were worth</h2>' +
+    '<span class="n">2 · THE RESULT</span></div>' +
+    '<p class="lede">Alongside the real book the desk marks three <b>counterfactual books</b> on ' +
+    'the identical ticks: one that ignores every risk gate, one that never buys the hedge, and one ' +
+    'that just sells premium on a schedule. They are not a backtest — they are what would have ' +
+    'happened to the very trades we took. No other submission in this field publishes them.</p>' +
+    '<div class="panel">' +
+    lineChart(books, { height: 300, zero: true, fmt: function (x) { return money(x, 0); } }) +
+    '<div class="legend">' + BK.map(function (b) {
+      return '<span><i style="background:' + b.color + '"></i>' + E(b.label) + '</span>'; }).join('') +
+    '</div></div>' +
+    '<div class="panel"><h3>Final position of each book</h3>' +
+    '<table><thead><tr><th>Book</th><th class="num">Profit and loss</th>' +
+    '<th class="num">What we gained against it</th></tr></thead><tbody>' + rows +
+    '</tbody></table>' +
+    '<div class="note">This is an <b>upper bound, not an edge</b>. The shadow books share our ' +
+    'entries and never take profit, so the no-gates book realizes $0.00 against our ' +
+    money(bk.realized) + '. It measures what the gates prevented on the paths we actually took, ' +
+    'nothing more.</div></div></section>');
 
-      <div class="ctlg"><span class="ctll">DENSITY</span>
-        <div class="seg" role="radiogroup" aria-label="Density" id="ctl-density" data-ctl="density">
-          <button type="button" role="radio" aria-checked="false" data-v="comfortable">COMFORTABLE</button>
-          <button type="button" role="radio" aria-checked="false" data-v="compact">COMPACT</button>
-        </div>
-      </div>
+  /* 4 — what it refused --------------------------------------------------- */
+  var KIND = { entry_refused: 'a risk gate refused it',
+    derisk_mode: 'a scheduled event was close',
+    no_candidate: 'nothing on offer was worth trading',
+    entry_skipped_duplicate: 'we already held it',
+    market_closed: 'the market was closed',
+    desk_veto: 'the desk vetoed it',
+    data_suspect: 'the data looked wrong' };
+  var byKind = d.refusals.by_kind || {}, maxK = Math.max.apply(null, Object.keys(byKind).map(function (k) { return byKind[k]; }));
+  var kbars = Object.keys(byKind).map(function (k) {
+    return bar(KIND[k] || k, byKind[k], maxK);
+  }).join('');
+  var gd = {}; (d.gate_defs || []).forEach(function (g) { gd[g.id] = g; });
+  var byGate = d.refusals.by_gate || {}, maxG = Math.max.apply(null, Object.keys(byGate).map(function (k) { return byGate[k]; }));
+  var gbars = Object.keys(byGate).map(function (k) {
+    return bar((gd[k] ? gd[k].label : k), byGate[k], maxG);
+  }).join('');
+  S.push('<section><div class="h"><h2>What it refused to do</h2><span class="n">3 · THE PRODUCT</span></div>' +
+    '<p class="lede">An autonomous trader is judged as much by what it declines as by what it ' +
+    'takes. This week the desk opened <b>' + num(c.structures_total) + '</b> structures and ' +
+    'refused <b>' + num(d.refusals.all) + '</b> times. Every refusal is a journal line with the ' +
+    'rule that fired and its reason — none of it is written after the fact.</p>' +
+    '<div class="two">' +
+    '<div class="panel"><h3>Why a trade did not happen</h3>' +
+    '<p class="sub">' + num(d.refusals.all) + ' refusals across ' +
+      Object.keys(byKind).length + ' kinds</p><div class="bars">' + kbars + '</div></div>' +
+    '<div class="panel"><h3>Which rule stopped it</h3>' +
+    '<p class="sub">the first gate to fail, over ' + (ser.gates || []).length + ' evaluations of 12 gates</p>' +
+    '<div class="bars">' + gbars + '</div></div>' +
+    '</div>' +
+    '<div class="panel"><h3>The risk it is allowed to take, and the risk it took</h3>' +
+    '<p class="sub">every ceiling below is a percentage of equity set in config.yaml, evaluated in code before any order</p>' +
+    meter('Worst case across the whole book', openRisk, lim.portfolio_cap) +
+    meter('Any single structure', Math.max.apply(null, (d.positions.open || []).map(function (p) { return p.max_loss || 0; }).concat([0])), lim.per_structure) +
+    '</div></section>');
 
-      <div class="ctlg">
-        <button type="button" class="chip" id="ctl-judge" data-ctl="judge" aria-pressed="false">JUDGE</button>
-        <button type="button" class="chip" id="ctl-export" data-ctl="export">EXPORT CSV</button>
-        <button type="button" class="chip filters" id="ctl-filters" data-ctl="filters" hidden>FILTERS ✕ <span data-n>0</span></button>
-      </div>
+  /* 5 — the book ---------------------------------------------------------- */
+  var openRows = (d.positions.open || []).map(function (p) {
+    return '<tr><td>' + E(p.kind.replace(/_/g, ' ')) + '</td>' +
+      '<td class="t">' + E(p.legs.map(function (l) { return l.symbol.slice(0, 3); })[0]) + ' · ' +
+      p.legs.length + ' legs</td>' +
+      '<td class="num">' + money(p.credit) + '</td>' +
+      '<td class="num">' + plain(p.max_loss, 0) + '</td>' +
+      '<td class="t">' + E(when(p.opened)) + '</td></tr>'; }).join('');
+  var tradeRows = (d.trades || []).map(function (t) {
+    return '<tr><td>' + E(t.kind.replace(/_/g, ' ')) + '</td>' +
+      '<td class="num">' + money(t.pnl, 0) + '</td>' +
+      '<td class="num t">' + (t.hours == null ? '—' : t.hours + 'h') + '</td>' +
+      '<td class="t">' + E(when(t.opened)) + ' → ' + E(when(t.closed)) + '</td></tr>'; }).join('');
+  S.push('<section><div class="h"><h2>The book</h2><span class="n">4 · POSITIONS</span></div>' +
+    '<p class="lede">' + c.structures_open + ' open, ' + c.structures_closed + ' closed and ' +
+    c.structures_unfilled + ' that were never filled — <b>' + c.structures_total + '</b> in total. ' +
+    'Every structure has a defined worst case that is computed before the order is sent, not after.</p>' +
+    '<div class="two">' +
+    '<div class="panel"><h3>Open now</h3><table><thead><tr><th>Structure</th><th>Legs</th>' +
+    '<th class="num">Credit</th><th class="num">Worst case</th><th>Opened</th></tr></thead><tbody>' +
+    openRows + '</tbody></table></div>' +
+    '<div class="panel"><h3>Closed this week</h3><table><thead><tr><th>Structure</th>' +
+    '<th class="num">Result</th><th class="num">Held</th><th>Window</th></tr></thead><tbody>' +
+    tradeRows + '</tbody></table></div></div>' +
+    '<div class="panel"><h3>Greeks, in dollars</h3>' +
+    '<p class="sub">what the book earns or loses when one thing moves</p><div class="cards">' +
+    card('Delta', money(gk.delta), 'per $1 move in the index — near zero by design', null, 'small') +
+    card('Theta', money(gk.theta), 'per day if nothing moves — this is the product', null, 'small') +
+    card('Vega', money(gk.vega), 'per volatility point — short vol, as intended', null, 'small') +
+    '</div></div></section>');
 
-    </div>
-  </div>
+  /* 6 — proof ------------------------------------------------------------- */
+  // every claim currently regenerates with the same command; printing it on
+  // twenty rows is noise, so it is stated once and only a claim that needs a
+  // different command carries one
+  var srcs = {}; (v.claims || []).forEach(function (x) { srcs[x.src] = 1; });
+  var oneSrc = Object.keys(srcs).length === 1 ? Object.keys(srcs)[0] : null;
+  var claims = (v.claims || []).map(function (x) {
+    return '<tr><td>' + E(x.name.replace(/_/g, ' ')) + '</td><td class="num">' + E(x.value) + '</td>' +
+      (oneSrc ? '' : '<td><code>' + E(x.src) + '</code></td>') + '</tr>'; }).join('');
+  S.push('<section><div class="h"><h2>How to check any of this</h2><span class="n">5 · PROOF</span></div>' +
+    '<p class="lede">Every decision is one line in an append-only journal, and each line carries ' +
+    'the SHA-256 of the line before it, so a changed record breaks the chain. The desk stores the ' +
+    'market snapshot it saw, so any decision can be replayed and must produce the same order.</p>' +
+    '<div class="cards">' +
+    card('Journal', num(v.journal_entries), v.chain_ok ? 'hash chain intact' : 'CHAIN BROKEN', v.chain_ok ? null : 'acc', 'small') +
+    card('Tests', v.test_defs + ' / ' + (v.tests_collected || '—'), 'functions written / cases collected', null, 'small') +
+    card('Claims', v.claims_total + ' / ' + v.claims_total, 'regenerate from a fresh clone', null, 'small') +
+    card('Corrections', num(v.devlog), 'documented, including the ones that cost money', null, 'small') +
+    '</div>' +
+    '<div class="panel"><h3>Every number this project claims, and how to reproduce it</h3>' +
+    '<p class="sub">' + (oneSrc ? 'All ' + v.claims_total + ' regenerate from a fresh clone with ' +
+      '<code>' + E(oneSrc) + '</code> — it recomputes each value from the journal and fails if any ' +
+      'one of them disagrees with what is written down.' : 'each row names its own command') + '</p>' +
+    '<table><thead><tr><th>Claim</th><th class="num">Value</th>' +
+    (oneSrc ? '' : '<th>Regenerate with</th>') + '</tr></thead>' +
+    '<tbody>' + claims + '</tbody></table></div>' +
+    '<div class="warnbox"><b>What we know is wrong with this.</b> The counterfactual books share ' +
+    'our entries, so they bound the value of the gates rather than measure it. One integrity ' +
+    'exception is open: the broker reports an option position the store does not know about. ' +
+    'Two marks were quarantined when the feed halved the index price after a close. All three are ' +
+    'on this page because a page that only shows strengths has not been checked.</div>' +
+    '</section>');
 
-  <!-- =================================================================== -->
-  <!-- BODY — 12 × 8 fractional grid, eighteen panels                       -->
-  <!-- =================================================================== -->
-  <main id="body">
+  document.getElementById('page').innerHTML = S.join('');
+}
 
-    <!-- ── COLUMN A · c1–3 · the rail ─────────────────────────────────── -->
+function card(k, v, s, cls, size) {
+  return '<div class="card' + (size ? ' ' + size : '') + '"><div class="k">' + E(k) + '</div>' +
+    '<div class="v' + (cls ? ' ' + cls : '') + '">' + v + '</div>' +
+    (s ? '<div class="s">' + s + '</div>' : '') + '</div>';
+}
+function bar(label, n, max) {
+  return '<div class="bar"><span class="lb" title="' + E(label) + '">' + E(label) + '</span>' +
+    '<span class="tr"><span class="fl" style="width:' + (100 * n / max).toFixed(1) + '%"></span></span>' +
+    '<span class="vv">' + n + '</span></div>';
+}
+function meter(label, used, limit) {
+  var p = limit ? Math.min(100, 100 * used / limit) : 0;
+  return '<div class="meter"><span class="lb">' + E(label) + '</span>' +
+    '<span>' + plain(used, 0) + ' <span style="color:#66665F">of ' + plain(limit, 0) + ' allowed</span></span>' +
+    '<span class="tr"><span class="fl" style="width:' + p.toFixed(1) + '%"></span></span></div>';
+}
 
-    <section class="p a1" id="p-signal" data-panel="signal" data-area="a1">
-      <header class="ph">
-        <h2>SIGNAL</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>signals · series.signal</span><span>panels-ab.js · TDP.signal</span></div>
-      </div>
-      <footer class="pf" data-provenance>signals · series.signal · params.regime</footer>
-    </section>
+/* ---- boot --------------------------------------------------------------- */
+function boot(d) {
+  try { render(d); } catch (e) {
+    document.getElementById('page').innerHTML =
+      '<div class="err">This page failed to render: ' + E(e.message) + '</div>';
+    throw e;
+  }
+  var f = document.createElement('footer');
+  f.className = '';
+  f.innerHTML = 'Paper trading only. Hypothetical results. Not investment advice.' +
+    '<span>Every figure on this page comes from one generated file, at commit <code>' +
+    E(d.commit) + '</code>, produced ' + E(String(d.generated_utc).slice(0, 16).replace('T', ' ')) + 'Z.</span>' +
+    '<a href="terminal.html">Open the dense terminal →</a>';
+  document.getElementById('page').appendChild(f);
+}
 
-    <section class="p a2" id="p-tree" data-panel="tree" data-area="a2">
-      <header class="ph">
-        <h2>CONTEXT TREE</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>params.universe · positions · gate_defs · series.books.real</span><span>panels-ab.js · TDP.tree</span></div>
-      </div>
-      <footer class="pf" data-provenance>params.universe · positions · gate_defs · series.gates · series.books.real</footer>
-    </section>
-
-    <section class="p a3" id="p-authority" data-panel="authority" data-area="a3">
-      <header class="ph">
-        <h2>AUTHORITY MAP</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>desk · series.desk · series.gates · verification</span><span>panels-ab.js · TDP.authority</span></div>
-      </div>
-      <footer class="pf" data-provenance>desk · series.desk · series.gates · verification · params.sizing · params.risk</footer>
-    </section>
-
-    <section class="p a4" id="p-weakness" data-panel="weakness" data-area="a4">
-      <header class="ph">
-        <h2>KNOWN WEAKNESSES</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.books · trades · quotes · marks_quarantined · positions.unfilled</span><span>panels-ab.js · TDP.weakness</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.books · trades · quotes · desk · positions · marks_quarantined</footer>
-    </section>
-
-    <!-- ── COLUMN B · c3–7 · the chart stack ──────────────────────────── -->
-
-    <section class="p b1" id="p-ledger" data-panel="ledger" data-area="b1">
-      <header class="ph">
-        <h2>ABLATION LEDGER</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.books.*</span><span>panels-ab.js · TDP.ledger</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.books.{real,shadow_nogates,shadow_nohedge,baseline_naive}</footer>
-    </section>
-
-    <section class="p b2" id="p-equity" data-panel="equity" data-area="b2">
-      <header class="ph">
-        <h2>EQUITY &amp; ABLATION</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.books.* · series.derisk · decisions</span><span>panels-ab.js · TDP.equity</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.books.* · series.derisk · decisions · kv.high_watermark · series.quarantine</footer>
-    </section>
-
-    <section class="p b3" id="p-thesis" data-panel="thesis" data-area="b3">
-      <header class="ph">
-        <h2>IMPLIED vs REALIZED</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.signal</span><span>panels-ab.js · TDP.thesis</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.signal · params.regime · series.refusals · series.derisk</footer>
-    </section>
-
-    <section class="p b4" id="p-greeks" data-panel="greeks" data-area="b4">
-      <header class="ph">
-        <h2>GREEKS</h2>
-        <div class="pc" data-controls><span class="chip lock" data-lock title="the three shadow books store exactly 0.0 for delta, theta and vega on all 87 rows">REAL BOOK ONLY</span></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.books.real[].d · .th · .vg</span><span>panels-ab.js · TDP.greeks</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.books.real[].{d,th,vg} · real book only</footer>
-    </section>
-
-    <section class="p b5" id="p-ribbon" data-panel="ribbon" data-area="b5">
-      <header class="ph">
-        <h2>CONTEXT &amp; DESK RIBBON</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.desk · series.derisk · series.signal</span><span>panels-ab.js · TDP.ribbon</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.desk · series.derisk · series.signal · owner of the shared x-axis and the brush</footer>
-    </section>
-
-    <!-- ── COLUMN C · c7–10 · the evidence stack ──────────────────────── -->
-
-    <section class="p c1" id="p-matrix" data-panel="matrix" data-area="c1">
-      <header class="ph">
-        <h2>GATE MATRIX</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.gates · gate_defs</span><span>panels-c.js · TDP.matrix</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.gates[].r · gate_defs · rows built from the union of keys present</footer>
-    </section>
-
-    <section class="p c2" id="p-ladder" data-panel="ladder" data-area="c2">
-      <header class="ph">
-        <h2>RISK LADDER</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>limits · params.risk · series.gates[].d</span><span>panels-c.js · TDP.ladder</span></div>
-      </div>
-      <footer class="pf" data-provenance>limits · params.risk · used side requires series.gates[].d</footer>
-    </section>
-
-    <section class="p c3" id="p-refusals" data-panel="refusals" data-area="c3">
-      <header class="ph">
-        <h2>REFUSALS</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>refusals.by_gate · series.refusals · series.gates</span><span>panels-c.js · TDP.refusals</span></div>
-      </div>
-      <footer class="pf" data-provenance>refusals.by_gate · refusals.by_kind · series.gates · a refusal names only the first failing gate; the matrix counts every failure</footer>
-    </section>
-
-    <section class="p c4" id="p-blotter" data-panel="blotter" data-area="c4">
-      <header class="ph">
-        <h2>BLOTTER</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>decisions · series.refusals · positions · trades · series.gates · series.desk · series.integrity</span><span>panels-c.js · TDP.blotter</span></div>
-      </div>
-      <footer class="pf" data-provenance>decisions · series.refusals · positions · trades · series.gates · series.desk · series.integrity</footer>
-    </section>
-
-    <!-- ── COLUMN D · c10–13 · proof and detail ───────────────────────── -->
-
-    <section class="p d1" id="p-recon" data-panel="recon" data-area="d1">
-      <header class="ph">
-        <h2>RECONCILIATION</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>broker · book · quotes</span><span>panels-d.js · TDP.recon</span></div>
-      </div>
-      <footer class="pf" data-provenance>broker · book · quotes · series.brokercheck · history requires series.books.real[].eq</footer>
-    </section>
-
-    <section class="p d2" id="p-integrity" data-panel="integrity" data-area="d2">
-      <header class="ph">
-        <h2>INTEGRITY &amp; CHAIN</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>series.integrity · verification</span><span>panels-d.js · TDP.integrity</span></div>
-      </div>
-      <footer class="pf" data-provenance>series.integrity · verification.{chain_ok,chain_msg,journal_entries,test_defs,tests_collected,devlog,claims}</footer>
-    </section>
-
-    <section class="p d3" id="p-trades" data-panel="trades" data-area="d3">
-      <header class="ph">
-        <h2>CLOSED TRADES</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>trades</span><span>panels-d.js · TDP.trades</span></div>
-      </div>
-      <footer class="pf" data-provenance>trades[] · pnl / max_loss / hours · no rolling statistic is drawn at n=6</footer>
-    </section>
-
-    <section class="p d4" id="p-deck" data-panel="deck" data-area="d4">
-      <header class="ph">
-        <h2>DECK</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>positions[].legs · series.manage · params · verification.claims</span><span>panels-d.js · TDP.deck</span></div>
-      </div>
-      <footer class="pf" data-provenance>positions[].legs · series.manage · params · verification.claims</footer>
-    </section>
-
-    <section class="p d5" id="p-inspector" data-panel="inspector" data-area="d5">
-      <header class="ph">
-        <h2>INSPECTOR</h2>
-        <div class="pc" data-controls></div>
-        <div class="pr" data-readout>—</div>
-      </header>
-      <div class="pb" data-body>
-        <div class="notpub" data-boot><b>not rendered</b><span>S.sel — type-polymorphic</span><span>panels-d.js · TDP.inspector</span></div>
-      </div>
-      <footer class="pf" data-provenance>driven by the selection · footer links to the raw journal record</footer>
-    </section>
-
-  </main>
-
-  <!-- =================================================================== -->
-  <!-- P99 · FOOTER — shell row 4, 20px                                     -->
-  <!-- =================================================================== -->
-  <footer id="p-footer" class="foot" data-panel="footer" data-area="p99" title="1–8 blotter tabs · ←/→ step cursor · Shift+←/→ step a session · Home/End ends · . lock cursor · [ ] deck · d density · j judge · a axis · u quality · b baseline · i inspector · f blotter search · c copy view link · x export · ? keymap · Esc unwind">
-    <span class="fseg">paper trading only</span>
-    <span class="fseg">append-only journal: no update path and no delete path exists in the codebase, and every line carries the SHA-256 of the one before it</span>
-    <span class="fseg">every figure from data.json @ <button type="button" class="rbtn mono" data-commit title="copy commit hash">—</button>, generated <span class="mono" data-generated>—</span></span>
-    <span class="fseg">scheduler 13:30–20:00 UTC Mon–Fri, every 15 min</span>
-    <span class="fseg right"><a href="index.html" target="_blank" rel="noopener">⤢ open standalone</a></span>
-  </footer>
-
-</div><!-- /#shell -->
-
-<!-- ===================================================================== -->
-<!-- OVERLAY 1 · RAW RECORD DRAWER — 420px, over column D only              -->
-<!-- ===================================================================== -->
-<aside id="ov-raw" class="ov ov-drawer" role="dialog" aria-modal="false" aria-labelledby="ov-raw-title" hidden>
-  <header class="ovh">
-    <h2 id="ov-raw-title">RAW RECORD</h2>
-    <div class="ovc">
-      <button type="button" class="chip" data-copy>⧉ COPY</button>
-      <button type="button" class="rbtn" data-close aria-label="close (Esc)">✕</button>
-    </div>
-  </header>
-  <div class="ovb" data-body>
-    <div class="notpub" data-boot><b>no record selected</b><span>decisions[].d · series.gates[].d</span><span>app.js · TD.drawer</span></div>
-  </div>
-  <footer class="ovf" data-provenance>one journal object, verbatim · data/journal/desk.jsonl</footer>
-</aside>
-
-<!-- ===================================================================== -->
-<!-- OVERLAY 2 · KEYMAP — 480×360 centred                                   -->
-<!-- ===================================================================== -->
-<aside id="ov-keymap" class="ov ov-centre" role="dialog" aria-modal="true" aria-labelledby="ov-keymap-title" hidden>
-  <header class="ovh">
-    <h2 id="ov-keymap-title">KEYBOARD</h2>
-    <div class="ovc">
-      <button type="button" class="rbtn" data-close aria-label="close (Esc)">✕</button>
-    </div>
-  </header>
-  <div class="ovb" data-body>
-    <dl class="keys">
-      <dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>blotter tabs</dd>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>step the cursor one tick</dd>
-      <dt><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd></dt><dd>step one session</dd>
-      <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>first / last tick</dd>
-      <dt><kbd>.</kbd></dt><dd>lock / unlock the cursor</dd>
-      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>cycle the deck sub-view</dd>
-      <dt><kbd>d</kbd></dt><dd>density</dd>
-      <dt><kbd>j</kbd></dt><dd>judge mode</dd>
-      <dt><kbd>a</kbd></dt><dd>axis mode — session / time</dd>
-      <dt><kbd>u</kbd></dt><dd>quality — all / clean</dd>
-      <dt><kbd>b</kbd></dt><dd>cycle the ablation baseline</dd>
-      <dt><kbd>i</kbd></dt><dd>focus the inspector (opens the drawer at M and S)</dd>
-      <dt><kbd>f</kbd></dt><dd>focus the blotter search</dd>
-      <dt><kbd>c</kbd></dt><dd>copy a link to this exact view</dd>
-      <dt><kbd>x</kbd></dt><dd>export the current blotter view as CSV</dd>
-      <dt><kbd>?</kbd></dt><dd>this card</dd>
-      <dt><kbd>Esc</kbd></dt><dd>unwind: close overlay → clear selection → unlock cursor</dd>
-    </dl>
-  </div>
-  <footer class="ovf" data-provenance>every shortcut on the page · there is no command palette</footer>
-</aside>
-
-<script src="charts.js"></script>
-<script src="derive.js"></script>
-<script src="panels-ab.js"></script>
-<script src="panels-c.js"></script>
-<script src="panels-d.js"></script>
-<script src="app.js"></script>
+if (window.__DATA__) { boot(window.__DATA__); }
+else {
+  fetch('data.json?' + Math.floor(Date.now() / 60000))
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(boot)
+    .catch(function (e) {
+      document.getElementById('boot').textContent =
+        'data.json could not be loaded (' + e.message + '). Run: python tools/site_data.py';
+    });
+}
+})();
+</script>
 </body>
 </html>

@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en" data-density="compact">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>THETA DESK · live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="views.css">
+</head>
+<body>
+
+<!-- ===================================================================== -->
+<!-- XS DEGRADED-MODE BAR  (§4.5) — sibling of #shell; CSS reveals it only  -->
+<!-- below 1000px wide, below 560px tall, or in portrait.                   -->
+<!-- ===================================================================== -->
+<div id="xs-warn" role="status">THETA DESK is a landscape instrument — 1000×700 minimum. Rotate or widen; showing the stacked fallback.</div>
+
+<div id="shell">
+
+  <!-- =================================================================== -->
+  <!-- P00 · STATUS RAIL — shell row 1, 26px, six zones                     -->
+  <!-- =================================================================== -->
+  <header id="p-status" class="rail" data-panel="status" data-area="p00">
+    <div class="rz" id="st-market"><span data-market>—</span></div>
+    <div class="rz" id="st-asof"><button type="button" class="rbtn" data-asof aria-pressed="false" title="toggle absolute / relative timestamps page-wide">as of —</button></div>
+    <div class="rz" id="st-tick"><button type="button" class="rbtn" data-tick title="jump to the last tick and lock the cursor">tick —</button></div>
+    <div class="rz" id="st-mode"><span class="chip" data-mode>—</span></div>
+    <div class="rz" id="st-chips">
+      <button type="button" class="chip chip-integrity" data-integrity>integrity —</button>
+      <button type="button" class="chip chip-chain" data-chain title="copy the verify command">chain —</button>
+    </div>
+    <div class="rz" id="st-right">
+      <button type="button" class="rbtn" id="st-refresh" data-refresh title="fetch data.json again">⟳</button>
+      <span class="rout" id="st-refresh-out" data-refresh-out></span>
+      <button type="button" class="rbtn mono" id="st-commit" data-commit title="copy commit hash">—</button>
+      <button type="button" class="rbtn" id="st-keymap" data-keymap aria-haspopup="dialog" aria-controls="ov-keymap" title="keyboard map (?)">?</button>
+    </div>
+  </header>
+
+  <!-- =================================================================== -->
+  <!-- P01 · COMMAND STRIP — shell row 2, 52px                              -->
+  <!-- =================================================================== -->
+  <div id="p-command" class="cmd" data-panel="command" data-area="p01">
+
+    <div class="cmd-funnels" id="cmd-funnels">
+      <div class="funnel" id="cf-cycle"><span class="fl">CYCLE</span><span class="fv" data-v>—</span></div>
+      <div class="funnel" id="cf-session"><span class="fl">SESSION</span><span class="fv" data-v>—</span></div>
+      <div class="funnel" id="cf-book"><span class="fl">BOOK</span><span class="fv" data-v>—</span></div>
+    </div>
+
+    <div class="cmd-kpis" id="cmd-kpis">
+      <span class="kpi" data-kpi="book"><span class="kl">BOOK P&amp;L</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
+      <span class="kpi" data-kpi="realized"><span class="kl">REALIZED</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
+      <span class="kpi" data-kpi="unrealized"><span class="kl">UNREALIZED</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
+      <button type="button" class="kpi" data-kpi="refused" data-tab="refusals"><span class="kl">REFUSED</span><span class="kv" data-v>—</span></button>
+      <button type="button" class="kpi" data-kpi="structures" data-tab="positions"><span class="kl">STRUCTURES</span><span class="kv" data-v>—</span></button>
+      <button type="button" class="kpi" data-kpi="journal" data-tab="all"><span class="kl">JOURNAL</span><span class="kv" data-v>—</span></button>
+    </div>
+
+    <div class="cmd-controls" id="cmd-controls">
+
+      <div class="ctlg"><span class="ctll">RANGE</span>
+        <div class="seg" role="radiogroup" aria-label="Range" id="ctl-range" data-ctl="range">
+          <button type="button" role="radio" aria-checked="false" data-v="1d">1D</button>
+          <button type="button" role="radio" aria-checked="false" data-v="3d">3D</button>
+          <button type="button" role="radio" aria-checked="false" data-v="all">ALL</button>
+        </div>
+      </div>
+
+      <div class="ctlg"><span class="ctll">AXIS</span>
+        <div class="seg" role="radiogroup" aria-label="Axis mode" id="ctl-axis" data-ctl="axis">
+          <button type="button" role="radio" aria-checked="false" data-v="session">SESSION</button>
+          <button type="button" role="radio" aria-checked="false" data-v="time">TIME</button>
+        </div>
+      </div>
+
+      <div class="ctlg"><span class="ctll">BOOKS</span>
+        <div class="chips" id="ctl-books" data-ctl="books">
+          <button type="button" class="chip bk bk-real" aria-pressed="true" data-v="real">REAL</button>
+          <button type="button" class="chip bk bk-nogates" aria-pressed="true" data-v="shadow_nogates">NO-GATES</button>
+          <button type="button" class="chip bk bk-nohedge" aria-pressed="true" data-v="shadow_nohedge">NO-HEDGE</button>
+          <button type="button" class="chip bk bk-naive" aria-pressed="true" data-v="baseline_naive">NAIVE</button>
+        </div>
+      </div>
+
+      <div class="ctlg"><span class="ctll">QUALITY</span>
+        <div class="seg" role="radiogroup" aria-label="Mark quality" id="ctl-quality" data-ctl="quality">
+          <button type="button" role="radio" aria-checked="false" data-v="all">ALL</button>
+          <button type="button" role="radio" aria-checked="false" data-v="clean">CLEAN</button>
+        </div>
+        <span class="ctln" data-quality-excluded></span>
+      </div>
+
+      <div class="ctlg"><span class="ctll">DENSITY</span>
+        <div class="seg" role="radiogroup" aria-label="Density" id="ctl-density" data-ctl="density">
+          <button type="button" role="radio" aria-checked="false" data-v="comfortable">COMFORTABLE</button>
+          <button type="button" role="radio" aria-checked="false" data-v="compact">COMPACT</button>
+        </div>
+      </div>
+
+      <div class="ctlg">
+        <button type="button" class="chip" id="ctl-judge" data-ctl="judge" aria-pressed="false">JUDGE</button>
+        <button type="button" class="chip" id="ctl-export" data-ctl="export">EXPORT CSV</button>
+        <button type="button" class="chip filters" id="ctl-filters" data-ctl="filters" hidden>FILTERS ✕ <span data-n>0</span></button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- BODY — 12 × 8 fractional grid, eighteen panels                       -->
+  <!-- =================================================================== -->
+  <main id="body">
+
+    <!-- ── COLUMN A · c1–3 · the rail ─────────────────────────────────── -->
+
+    <section class="p a1" id="p-signal" data-panel="signal" data-area="a1">
+      <header class="ph">
+        <h2>SIGNAL</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>signals · series.signal</span><span>panels-ab.js · TDP.signal</span></div>
+      </div>
+      <footer class="pf" data-provenance>signals · series.signal · params.regime</footer>
+    </section>
+
+    <section class="p a2" id="p-tree" data-panel="tree" data-area="a2">
+      <header class="ph">
+        <h2>CONTEXT TREE</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>params.universe · positions · gate_defs · series.books.real</span><span>panels-ab.js · TDP.tree</span></div>
+      </div>
+      <footer class="pf" data-provenance>params.universe · positions · gate_defs · series.gates · series.books.real</footer>
+    </section>
+
+    <section class="p a3" id="p-authority" data-panel="authority" data-area="a3">
+      <header class="ph">
+        <h2>AUTHORITY MAP</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>desk · series.desk · series.gates · verification</span><span>panels-ab.js · TDP.authority</span></div>
+      </div>
+      <footer class="pf" data-provenance>desk · series.desk · series.gates · verification · params.sizing · params.risk</footer>
+    </section>
+
+    <section class="p a4" id="p-weakness" data-panel="weakness" data-area="a4">
+      <header class="ph">
+        <h2>KNOWN WEAKNESSES</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books · trades · quotes · marks_quarantined · positions.unfilled</span><span>panels-ab.js · TDP.weakness</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books · trades · quotes · desk · positions · marks_quarantined</footer>
+    </section>
+
+    <!-- ── COLUMN B · c3–7 · the chart stack ──────────────────────────── -->
+
+    <section class="p b1" id="p-ledger" data-panel="ledger" data-area="b1">
+      <header class="ph">
+        <h2>ABLATION LEDGER</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books.*</span><span>panels-ab.js · TDP.ledger</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books.{real,shadow_nogates,shadow_nohedge,baseline_naive}</footer>
+    </section>
+
+    <section class="p b2" id="p-equity" data-panel="equity" data-area="b2">
+      <header class="ph">
+        <h2>EQUITY &amp; ABLATION</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books.* · series.derisk · decisions</span><span>panels-ab.js · TDP.equity</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books.* · series.derisk · decisions · kv.high_watermark · series.quarantine</footer>
+    </section>
+
+    <section class="p b3" id="p-thesis" data-panel="thesis" data-area="b3">
+      <header class="ph">
+        <h2>IMPLIED vs REALIZED</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.signal</span><span>panels-ab.js · TDP.thesis</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.signal · params.regime · series.refusals · series.derisk</footer>
+    </section>
+
+    <section class="p b4" id="p-greeks" data-panel="greeks" data-area="b4">
+      <header class="ph">
+        <h2>GREEKS</h2>
+        <div class="pc" data-controls><span class="chip lock" data-lock title="the three shadow books store exactly 0.0 for delta, theta and vega on all 87 rows">REAL BOOK ONLY</span></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books.real[].d · .th · .vg</span><span>panels-ab.js · TDP.greeks</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books.real[].{d,th,vg} · real book only</footer>
+    </section>
+
+    <section class="p b5" id="p-ribbon" data-panel="ribbon" data-area="b5">
+      <header class="ph">
+        <h2>CONTEXT &amp; DESK RIBBON</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.desk · series.derisk · series.signal</span><span>panels-ab.js · TDP.ribbon</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.desk · series.derisk · series.signal · owner of the shared x-axis and the brush</footer>
+    </section>
+
+    <!-- ── COLUMN C · c7–10 · the evidence stack ──────────────────────── -->
+
+    <section class="p c1" id="p-matrix" data-panel="matrix" data-area="c1">
+      <header class="ph">
+        <h2>GATE MATRIX</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.gates · gate_defs</span><span>panels-c.js · TDP.matrix</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.gates[].r · gate_defs · rows built from the union of keys present</footer>
+    </section>
+
+    <section class="p c2" id="p-ladder" data-panel="ladder" data-area="c2">
+      <header class="ph">
+        <h2>RISK LADDER</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>limits · params.risk · series.gates[].d</span><span>panels-c.js · TDP.ladder</span></div>
+      </div>
+      <footer class="pf" data-provenance>limits · params.risk · used side requires series.gates[].d</footer>
+    </section>
+
+    <section class="p c3" id="p-refusals" data-panel="refusals" data-area="c3">
+      <header class="ph">
+        <h2>REFUSALS</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>refusals.by_gate · series.refusals · series.gates</span><span>panels-c.js · TDP.refusals</span></div>
+      </div>
+      <footer class="pf" data-provenance>refusals.by_gate · refusals.by_kind · series.gates · a refusal names only the first failing gate; the matrix counts every failure</footer>
+    </section>
+
+    <section class="p c4" id="p-blotter" data-panel="blotter" data-area="c4">
+      <header class="ph">
+        <h2>BLOTTER</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>decisions · series.refusals · positions · trades · series.gates · series.desk · series.integrity</span><span>panels-c.js · TDP.blotter</span></div>
+      </div>
+      <footer class="pf" data-provenance>decisions · series.refusals · positions · trades · series.gates · series.desk · series.integrity</footer>
+    </section>
+
+    <!-- ── COLUMN D · c10–13 · proof and detail ───────────────────────── -->
+
+    <section class="p d1" id="p-recon" data-panel="recon" data-area="d1">
+      <header class="ph">
+        <h2>RECONCILIATION</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>broker · book · quotes</span><span>panels-d.js · TDP.recon</span></div>
+      </div>
+      <footer class="pf" data-provenance>broker · book · quotes · series.brokercheck · history requires series.books.real[].eq</footer>
+    </section>
+
+    <section class="p d2" id="p-integrity" data-panel="integrity" data-area="d2">
+      <header class="ph">
+        <h2>INTEGRITY &amp; CHAIN</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.integrity · verification</span><span>panels-d.js · TDP.integrity</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.integrity · verification.{chain_ok,chain_msg,journal_entries,test_defs,tests_collected,devlog,claims}</footer>
+    </section>
+
+    <section class="p d3" id="p-trades" data-panel="trades" data-area="d3">
+      <header class="ph">
+        <h2>CLOSED TRADES</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>trades</span><span>panels-d.js · TDP.trades</span></div>
+      </div>
+      <footer class="pf" data-provenance>trades[] · pnl / max_loss / hours · no rolling statistic is drawn at n=6</footer>
+    </section>
+
+    <section class="p d4" id="p-deck" data-panel="deck" data-area="d4">
+      <header class="ph">
+        <h2>DECK</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>positions[].legs · series.manage · params · verification.claims</span><span>panels-d.js · TDP.deck</span></div>
+      </div>
+      <footer class="pf" data-provenance>positions[].legs · series.manage · params · verification.claims</footer>
+    </section>
+
+    <section class="p d5" id="p-inspector" data-panel="inspector" data-area="d5">
+      <header class="ph">
+        <h2>INSPECTOR</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>S.sel — type-polymorphic</span><span>panels-d.js · TDP.inspector</span></div>
+      </div>
+      <footer class="pf" data-provenance>driven by the selection · footer links to the raw journal record</footer>
+    </section>
+
+  </main>
+
+  <!-- =================================================================== -->
+  <!-- P99 · FOOTER — shell row 4, 20px                                     -->
+  <!-- =================================================================== -->
+  <footer id="p-footer" class="foot" data-panel="footer" data-area="p99" title="1–8 blotter tabs · ←/→ step cursor · Shift+←/→ step a session · Home/End ends · . lock cursor · [ ] deck · d density · j judge · a axis · u quality · b baseline · i inspector · f blotter search · c copy view link · x export · ? keymap · Esc unwind">
+    <span class="fseg">paper trading only</span>
+    <span class="fseg">append-only journal: no update path and no delete path exists in the codebase, and every line carries the SHA-256 of the one before it</span>
+    <span class="fseg">every figure from data.json @ <button type="button" class="rbtn mono" data-commit title="copy commit hash">—</button>, generated <span class="mono" data-generated>—</span></span>
+    <span class="fseg">scheduler 13:30–20:00 UTC Mon–Fri, every 15 min</span>
+    <span class="fseg right"><a href="index.html" target="_blank" rel="noopener">⤢ open standalone</a></span>
+  </footer>
+
+</div><!-- /#shell -->
+
+<!-- ===================================================================== -->
+<!-- OVERLAY 1 · RAW RECORD DRAWER — 420px, over column D only              -->
+<!-- ===================================================================== -->
+<aside id="ov-raw" class="ov ov-drawer" role="dialog" aria-modal="false" aria-labelledby="ov-raw-title" hidden>
+  <header class="ovh">
+    <h2 id="ov-raw-title">RAW RECORD</h2>
+    <div class="ovc">
+      <button type="button" class="chip" data-copy>⧉ COPY</button>
+      <button type="button" class="rbtn" data-close aria-label="close (Esc)">✕</button>
+    </div>
+  </header>
+  <div class="ovb" data-body>
+    <div class="notpub" data-boot><b>no record selected</b><span>decisions[].d · series.gates[].d</span><span>app.js · TD.drawer</span></div>
+  </div>
+  <footer class="ovf" data-provenance>one journal object, verbatim · data/journal/desk.jsonl</footer>
+</aside>
+
+<!-- ===================================================================== -->
+<!-- OVERLAY 2 · KEYMAP — 480×360 centred                                   -->
+<!-- ===================================================================== -->
+<aside id="ov-keymap" class="ov ov-centre" role="dialog" aria-modal="true" aria-labelledby="ov-keymap-title" hidden>
+  <header class="ovh">
+    <h2 id="ov-keymap-title">KEYBOARD</h2>
+    <div class="ovc">
+      <button type="button" class="rbtn" data-close aria-label="close (Esc)">✕</button>
+    </div>
+  </header>
+  <div class="ovb" data-body>
+    <dl class="keys">
+      <dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>blotter tabs</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>step the cursor one tick</dd>
+      <dt><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd></dt><dd>step one session</dd>
+      <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>first / last tick</dd>
+      <dt><kbd>.</kbd></dt><dd>lock / unlock the cursor</dd>
+      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>cycle the deck sub-view</dd>
+      <dt><kbd>d</kbd></dt><dd>density</dd>
+      <dt><kbd>j</kbd></dt><dd>judge mode</dd>
+      <dt><kbd>a</kbd></dt><dd>axis mode — session / time</dd>
+      <dt><kbd>u</kbd></dt><dd>quality — all / clean</dd>
+      <dt><kbd>b</kbd></dt><dd>cycle the ablation baseline</dd>
+      <dt><kbd>i</kbd></dt><dd>focus the inspector (opens the drawer at M and S)</dd>
+      <dt><kbd>f</kbd></dt><dd>focus the blotter search</dd>
+      <dt><kbd>c</kbd></dt><dd>copy a link to this exact view</dd>
+      <dt><kbd>x</kbd></dt><dd>export the current blotter view as CSV</dd>
+      <dt><kbd>?</kbd></dt><dd>this card</dd>
+      <dt><kbd>Esc</kbd></dt><dd>unwind: close overlay → clear selection → unlock cursor</dd>
+    </dl>
+  </div>
+  <footer class="ovf" data-provenance>every shortcut on the page · there is no command palette</footer>
+</aside>
+
+<script src="charts.js"></script>
+<script src="derive.js"></script>
+<script src="panels-ab.js"></script>
+<script src="panels-c.js"></script>
+<script src="panels-d.js"></script>
+<script src="app.js"></script>
+<script src="views.js"></script>
+</body>
+</html>

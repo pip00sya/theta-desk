@@ -1,0 +1,125 @@
+/* ============================================================================
+   THETA DESK — the page a judge reads.
+
+   The instrument version of this dashboard put eighteen panels on one screen.
+   It was accurate and unreadable. The strongest submissions in this field do
+   the opposite: a page that scrolls, five or six named sections, a handful of
+   large numbers each, one sentence of plain English before every block. This
+   is that page.
+
+   Every figure still comes from one generated file (tools/site_data.py), and
+   the dense terminal is still there at terminal.html for anyone who wants it.
+   ========================================================================== */
+
+:root{
+  --ground:#0B0B0C; --card:#141416; --card2:#191919; --raised:#212125;
+  --rule:#26262A; --rule-hi:#33333A;
+  --ink:#F2F2F0; --soft:#9A9A94; --faint:#66665F;
+  --gate:#FFD400; --sel:#A98BFF; --breach:#FF5A47; --ok:#2FD98F;
+  --mono:"IBM Plex Mono","Cascadia Mono",Consolas,ui-monospace,monospace;
+  --sans:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --r:10px;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--ground);color:var(--ink)}
+body{font-family:var(--sans);font-size:15px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px 72px}
+a{color:inherit}
+.mono{font-family:var(--mono)}
+
+/* ---- masthead ----------------------------------------------------------- */
+.top{position:sticky;top:0;z-index:5;background:rgba(11,11,12,.92);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
+.top .wrap{padding-top:16px;padding-bottom:16px;display:flex;align-items:center;
+  gap:18px;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-size:19px;font-weight:600;letter-spacing:.16em}
+.tag{color:var(--soft);font-size:14px;flex:1;min-width:280px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;padding:4px 10px;
+  border:1px solid var(--rule-hi);border-radius:999px;color:var(--soft);white-space:nowrap}
+.chip.live{color:var(--ok);border-color:#245c44}
+.chip.warn{color:var(--gate);border-color:#5c5220}
+.chip b{font-weight:500;color:var(--ink)}
+
+/* ---- sections ----------------------------------------------------------- */
+section{margin-top:52px}
+.h{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.h h2{font-size:21px;font-weight:600;margin:0;letter-spacing:-.01em}
+.h .n{font-family:var(--mono);font-size:12px;color:var(--faint);letter-spacing:.14em}
+.lede{color:var(--soft);font-size:15px;max-width:78ch;margin:0 0 20px}
+.lede b{color:var(--ink);font-weight:600}
+
+/* ---- number cards ------------------------------------------------------- */
+.cards{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:var(--r);
+  padding:18px 20px 16px}
+.card .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--faint)}
+.card .v{font-family:var(--mono);font-size:30px;line-height:1.15;margin-top:8px;
+  letter-spacing:-.02em;white-space:nowrap}
+.card .s{font-size:13px;color:var(--soft);margin-top:6px}
+.card.small .v{font-size:23px}
+.up{color:var(--ink)} .down{color:var(--ink)}
+.acc{color:var(--gate)}
+
+/* ---- panels (chart / table holders) ------------------------------------- */
+.panel{background:var(--card);border:1px solid var(--rule);border-radius:var(--r);
+  padding:20px 22px;margin-top:14px}
+.panel h3{margin:0 0 4px;font-size:15px;font-weight:600}
+.panel .sub{color:var(--faint);font-size:13px;margin:0 0 14px}
+.two{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 0;
+  font-family:var(--mono);font-size:12px;color:var(--soft)}
+.legend i{display:inline-block;width:11px;height:2px;vertical-align:middle;
+  margin-right:7px;border-radius:2px}
+
+/* ---- tables ------------------------------------------------------------- */
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+th{text-align:left;font-weight:500;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--faint);padding:0 12px 9px;border-bottom:1px solid var(--rule)}
+td{padding:9px 12px;border-bottom:1px solid var(--rule);color:var(--ink);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--card2)}
+td.num,th.num{text-align:right}
+td.w{white-space:normal;color:var(--soft);font-family:var(--sans);font-size:13.5px}
+td .t{color:var(--faint)}
+
+/* ---- bars --------------------------------------------------------------- */
+.bars{display:grid;gap:9px;margin-top:4px}
+.bar{display:grid;grid-template-columns:minmax(150px,270px) 1fr 56px;align-items:center;gap:14px;
+  font-family:var(--mono);font-size:13px}
+.bar .lb{color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .tr{display:block;height:14px;background:var(--raised);border-radius:3px;overflow:hidden}
+.bar .fl{display:block;height:100%;background:var(--gate);opacity:.85}
+.bar .vv{text-align:right}
+@media (max-width:700px){.bar{grid-template-columns:130px 1fr 46px}}
+
+/* ---- meters ------------------------------------------------------------- */
+.meter{display:grid;grid-template-columns:1fr auto;gap:4px 16px;margin-top:14px;
+  font-family:var(--mono);font-size:13px}
+.meter .lb{color:var(--soft)}
+.meter .tr{display:block;grid-column:1/3;height:8px;background:var(--raised);
+  border-radius:3px;position:relative;overflow:hidden}
+.meter .fl{display:block;height:100%;background:var(--sel);opacity:.85}
+
+/* ---- notes -------------------------------------------------------------- */
+.note{border-left:2px solid var(--rule-hi);padding:2px 0 2px 14px;margin-top:16px;
+  color:var(--soft);font-size:14px}
+.note b{color:var(--ink)}
+.warnbox{border:1px solid #5c5220;background:#191606;border-radius:var(--r);
+  padding:14px 18px;margin-top:14px;color:var(--gate);font-size:14px}
+.warnbox b{color:var(--gate)}
+code{font-family:var(--mono);font-size:12.5px;background:var(--raised);
+  padding:2px 7px;border-radius:4px;color:var(--ink);white-space:nowrap}
+
+/* ---- footer ------------------------------------------------------------- */
+footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--rule);
+  color:var(--faint);font-size:13px;display:flex;gap:22px;flex-wrap:wrap}
+footer a{color:var(--soft)}
+
+svg{display:block;width:100%;height:auto}
+.err{color:var(--breach);font-family:var(--mono);padding:40px 0}
