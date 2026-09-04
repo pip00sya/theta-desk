@@ -961,11 +961,19 @@ function pulseClock() {
       mk = document.getElementById('pmkt');
   if (!dot || !v || !mk) return;
   if (!PULSE) {
-    dot.className = 'pdot off'; v.textContent = 'not running';
-    mk.textContent = ' · start tools/pulse.py for a live account read';
+    dot.className = 'pdot off';
+    v.textContent = '—';
+    mk.textContent = EMBEDDED
+      ? ' · no reading published with this page'
+      : ' · no live.json — run ops\\pulse.ps1 for a live account read';
     return;
   }
-  var age = (Date.now() - PULSE_AT) / 1000;
+  /* Served directly the console polls and the age is the age of the poll.
+     Embedded, the reading travelled with the page: age it from its own
+     timestamp and say so, rather than implying a live connection. */
+  var age = EMBEDDED
+    ? (Date.now() - Date.parse(PULSE.t)) / 1000
+    : (Date.now() - PULSE_AT) / 1000;
   dot.className = 'pdot' + (age > 20 ? ' off' : '');
   var a = PULSE.account || {};
   v.textContent = a.equity != null ? usd(a.equity) : '—';
@@ -976,7 +984,8 @@ function pulseClock() {
   } else if (m.is_open === false) {
     state = ' · market closed' + (m.next_open ? ' · opens in ' + until(m.next_open) : '');
   }
-  var ago = ' · ' + Math.round(age) + 's ago';
+  var ago = ' · ' + (age < 90 ? Math.round(age) + 's' : Math.round(age / 60) + 'm') +
+           (EMBEDDED ? ' old, published with this page' : ' ago');
   var print = lt.price ? ' · last print ' + usd(lt.price) + ' at ' + hm(lt.at) + 'Z' : '';
   var seqs = ' · poll ' + PULSE.seq;
   /* Measure rather than guess: write the fullest tail, and drop one fact at a
@@ -994,8 +1003,9 @@ function pulseClock() {
   var eq = document.getElementById('kpi-eq');
   if (eq && a.equity != null) {
     eq.querySelector('.v').innerHTML = usd(a.equity, 0);
-    eq.querySelector('.s').innerHTML = 'Alpaca paper ' + E(D.account) +
-      ' · polled ' + Math.round(age) + 's ago';
+    eq.querySelector('.s').innerHTML = 'Alpaca paper ' + E(D.account) + ' · ' +
+      (EMBEDDED ? 'read ' + Math.round(age) + 's before this page was served'
+                : 'polled ' + Math.round(age) + 's ago');
   }
 }
 /* a plain countdown to an ISO instant, ticking locally between polls */
@@ -1171,8 +1181,8 @@ else {
 }
 setInterval(function () { if (AUTO) refresh(false); }, POLL_MS);
 setInterval(function () { ageClock(); tickClock(); pulseClock(); }, 1000);
-setInterval(pollPulse, PULSE_MS);
-pollPulse();
+if (window.__LIVE__) { PULSE = window.__LIVE__; PULSE_AT = Date.now(); }
+if (!EMBEDDED) { setInterval(pollPulse, PULSE_MS); pollPulse(); }
 })();
 </script>
 </body>

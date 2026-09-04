@@ -109,7 +109,16 @@ if d is not None:
     # it is not, so the same file works as a static page and as a component. The
     # host only has to define it before any script that renders runs.
     blob = ("<script>window.__DATA__ = "
-            + json.dumps(d, separators=(",", ":")) + ";</script>")
+            + json.dumps(d, separators=(",", ":")) + ";")
+    # The component iframe has no path to fetch live.json from, so the last
+    # reading the pulse published travels with the page. It is labelled by its
+    # own timestamp rather than presented as a live poll.
+    try:
+        live = json.loads((WEB / "live.json").read_text(encoding="utf-8"))
+        blob += "window.__LIVE__ = " + json.dumps(live, separators=(",", ":")) + ";"
+    except Exception:
+        pass
+    blob += "</script>"
     if "</head>" in html:
         html = html.replace("</head>", blob + "\n</head>", 1)
     else:
