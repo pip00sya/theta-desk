@@ -94,6 +94,18 @@ NARRATION = {
         "before the jobs report. The unmanaged book of everything they let through "
         "and everything they refused is deep in the red while the gated book is "
         "green. The gates are load bearing. We publish the caveat with the number."),
+    58: ("console.png",
+        "And this is the desk itself, mid session, with the market open. Nothing on "
+        "this page is typed. The ceilings at the bottom read from the ladder — rung "
+        "establish, six closed trades, five hundred and ninety eight dollars banked, "
+        "next rung at fifteen. Beside the last tick it says thirty four management "
+        "passes today, because the fast loop writes its own count. And on the right, "
+        "the audit log shows this afternoon's entry clearing every gate at two "
+        "o'clock — one line above yesterday's refusal on the very liquidity rule we "
+        "replaced this morning, after measuring that it was rejecting wings costing "
+        "one dollar to cross. Refusals and entries sit in the same stream, in the "
+        "same plain language, because a desk that only shows you its trades is "
+        "showing you half its behaviour."),
     6: ("verify.png",
         "Everything is reproducible. The journal is hash chained — change one byte "
         "and verification fails. Every tick stores its inputs, and one command "
