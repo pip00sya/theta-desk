@@ -1,494 +1,414 @@
+<!doctype html>
+<html lang="en" data-density="compact">
+<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>THETA DESK · live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
 
-<style>
-:root{
-  --ground:#0B0B0C; --surface:#141416; --surface2:#1A1A1D; --raised:#212125;
-  --ink:#F2F2F0; --soft:#8E8E88; --faint:#5C5C58; --rule:#26262A;
-  --gate:#FFD400; --gain:#2FD98F; --loss:#FF5A47; --cool:#5B9DFF;
-  --sans:"Archivo","Helvetica Neue",Arial,sans-serif;
-  --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
-}
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
-  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
-.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.up{color:var(--gain)} .down{color:var(--loss)} .dim{color:var(--soft)} .faint{color:var(--faint)}
-a{color:var(--cool);text-decoration:none} a:hover{text-decoration:underline}
+<!-- ===================================================================== -->
+<!-- XS DEGRADED-MODE BAR  (§4.5) — sibling of #shell; CSS reveals it only  -->
+<!-- below 1000px wide, below 560px tall, or in portrait.                   -->
+<!-- ===================================================================== -->
+<div id="xs-warn" role="status">THETA DESK is a landscape instrument — 1000×700 minimum. Rotate or widen; showing the stacked fallback.</div>
 
-.wrap{max-width:1560px;margin:0 auto;padding:0 22px 80px}
+<div id="shell">
 
-/* ── masthead ─────────────────────────────────────────────── */
-header{border-bottom:1px solid var(--rule);padding:26px 0 0;margin-bottom:20px}
-.mast{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap}
-.brand h1{font-size:30px;font-weight:700;letter-spacing:-.025em;margin:2px 0 4px}
-.brand .kick{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;
-  text-transform:uppercase;color:var(--gate)}
-.brand p{margin:0;color:var(--soft);font-size:13.5px;max-width:62ch}
-.live{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;
-  color:var(--soft);white-space:nowrap}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--gain);
-  box-shadow:0 0 0 3px rgba(47,217,143,.15)}
-.dot.stale{background:var(--gate);box-shadow:0 0 0 3px rgba(255,212,0,.15)}
-
-/* ── kpi row ──────────────────────────────────────────────── */
-/* flex, not grid: five tiles into a four-wide row leaves grid with a dead cell
-   that reads as a broken panel. Flex stretches the last row instead. */
-.kpis{display:flex;flex-wrap:wrap;gap:1px;background:var(--rule);
-  border:1px solid var(--rule);margin:20px 0 0}
-.kpi{background:var(--surface);padding:14px 16px 15px;flex:1 1 186px}
-.kpi .lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--faint);display:block;margin-bottom:7px}
-.kpi .val{font-family:var(--mono);font-size:25px;font-weight:500;letter-spacing:-.02em;
-  line-height:1.05;display:block}
-.kpi .sub{font-size:11.5px;color:var(--soft);margin-top:5px;display:block}
-
-/* reconciliation strip: realized and marked are different kinds of number, so
-   the page shows the subtraction rather than asserting a total */
-.recon{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding:13px 16px;
-  border:1px solid var(--rule);border-top:0;background:var(--surface2)}
-.recon .eq{font-family:var(--mono);font-size:14.5px;color:var(--ink)}
-.recon .eq b{font-weight:500}
-.recon .eq span{color:var(--soft)}
-.recon .note{font-size:11.5px;color:var(--faint);max-width:64ch}
-.recon.lag{border-color:#3A3A32}
-.recon.bad{border-color:var(--loss)}
-.recon .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;
-  text-transform:uppercase;padding:2px 7px;border:1px solid var(--rule);color:var(--soft)}
-.recon.lag .tag{color:var(--gate);border-color:var(--gate)}
-.recon.bad .tag{color:var(--loss);border-color:var(--loss)}
-
-/* ── layout ───────────────────────────────────────────────── */
-.grid{display:grid;grid-template-columns:238px 1fr 268px;gap:18px;margin-top:18px}
-@media(max-width:1240px){.grid{grid-template-columns:1fr}}
-.panel{background:var(--surface);border:1px solid var(--rule)}
-.panel > h2{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--faint);margin:0;padding:12px 15px 10px;border-bottom:1px solid var(--rule);
-  display:flex;justify-content:space-between;align-items:center;gap:10px}
-.panel > h2 em{font-style:normal;color:var(--soft);letter-spacing:.04em;text-transform:none;
-  font-size:10.5px}
-.pad{padding:14px 15px}
-
-/* signals rail */
-.sig{display:flex;justify-content:space-between;align-items:baseline;
-  padding:9px 15px;border-bottom:1px solid var(--rule)}
-.sig:last-child{border-bottom:0}
-.sig .k{font-size:12px;color:var(--soft)}
-.sig .v{font-family:var(--mono);font-size:15px}
-.regime{margin:14px 15px;padding:11px 13px;border:1px solid var(--gate);
-  background:rgba(255,212,0,.06)}
-.regime b{display:block;font-family:var(--mono);font-size:17px;color:var(--gate);
-  letter-spacing:.04em;text-transform:uppercase}
-.regime span{font-size:11.5px;color:var(--soft);display:block;margin-top:4px}
-
-/* chart */
-.chartwrap{padding:16px 14px 6px}
-svg.chart{display:block;width:100%;height:auto;overflow:visible}
-.legend{display:flex;gap:16px;flex-wrap:wrap;padding:4px 16px 14px}
-.legend span{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;
-  color:var(--soft);cursor:pointer;user-select:none}
-.legend span.off{opacity:.32}
-.legend i{width:14px;height:2.5px;display:inline-block;border-radius:2px}
-.caveat{margin:0 14px 14px;padding:11px 13px;border-left:2px solid var(--gate);
-  background:var(--surface2);font-size:12.2px;color:var(--soft);line-height:1.55}
-.caveat b{color:var(--ink);font-weight:600}
-
-/* risk authority */
-.meter{padding:11px 15px;border-bottom:1px solid var(--rule)}
-.meter:last-child{border-bottom:0}
-.meter .row{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:6px}
-.meter .row b{font-family:var(--mono);font-weight:500}
-.bar{height:5px;background:var(--raised);overflow:hidden}
-.bar i{display:block;height:100%;background:var(--cool)}
-.bar i.warn{background:var(--gate)}
-.bar i.full{background:var(--loss)}
-
-/* tabs */
-.tabs{display:flex;gap:0;border-bottom:1px solid var(--rule);margin-top:22px;flex-wrap:wrap}
-.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--soft);
-  font-family:var(--mono);font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
-  padding:11px 15px;cursor:pointer}
-.tabs button:hover{color:var(--ink)}
-.tabs button[aria-selected="true"]{color:var(--gate);border-bottom-color:var(--gate)}
-.tabpanel[hidden]{display:none}
-
-table{width:100%;border-collapse:collapse;font-size:12.8px}
-.scroll{overflow-x:auto}
-th{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--faint);text-align:left;padding:11px 13px;border-bottom:1px solid var(--rule);
-  white-space:nowrap;position:sticky;top:0;background:var(--surface)}
-td{padding:9px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
-tbody tr:hover{background:var(--surface2)}
-td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
-.chip{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;
-  padding:2px 7px;border:1px solid;white-space:nowrap;text-transform:uppercase}
-.chip.open{color:var(--gain);border-color:rgba(47,217,143,.4);background:rgba(47,217,143,.07)}
-.chip.closed{color:var(--soft);border-color:var(--rule)}
-.chip.ref{color:var(--gate);border-color:rgba(255,212,0,.4);background:rgba(255,212,0,.06)}
-.chip.hedge{color:var(--cool);border-color:rgba(91,157,255,.4);background:rgba(91,157,255,.07)}
-
-/* gate grid — Pin Desk pattern */
-.gates{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:1px;
-  background:var(--rule);border:1px solid var(--rule)}
-.gate{background:var(--surface);padding:11px 13px}
-.gate .g{font-family:var(--mono);font-size:11.5px;color:var(--ink)}
-.gate .c{font-family:var(--mono);font-size:20px;color:var(--gate);line-height:1.15;margin-top:3px}
-.gate .w{font-size:11px;color:var(--soft);margin-top:2px}
-.gate.zero .c{color:var(--faint)}
-
-/* verification */
-.verify{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;
-  background:var(--rule);border:1px solid var(--rule)}
-.vcard{background:var(--surface);padding:15px 16px}
-.vcard b{display:block;font-family:var(--mono);font-size:22px;color:var(--gain);margin-bottom:5px}
-.vcard .t{font-size:12px;color:var(--ink);margin-bottom:4px}
-.vcard code{font-family:var(--mono);font-size:10.5px;color:var(--soft);
-  background:var(--raised);padding:2px 6px;display:inline-block;margin-top:6px}
-footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--rule);
-  font-size:11.5px;color:var(--faint);display:flex;justify-content:space-between;
-  gap:16px;flex-wrap:wrap}
-.err{padding:40px;text-align:center;color:var(--soft);font-family:var(--mono)}
-</style>
-
-<div class="wrap">
-<header>
-  <div class="mast">
-    <div class="brand">
-      <div class="kick">Alpaca paper account PA39C10YAMYQ · glass box</div>
-      <h1>THETA DESK</h1>
-      <p>An autonomous options desk that prices <b>volatility</b>, not direction.
-         Every number on this page is generated from one file, computed once, from the
-         hash-chained journal.</p>
+  <!-- =================================================================== -->
+  <!-- P00 · STATUS RAIL — shell row 1, 26px, six zones                     -->
+  <!-- =================================================================== -->
+  <header id="p-status" class="rail" data-panel="status" data-area="p00">
+    <div class="rz" id="st-market"><span data-market>—</span></div>
+    <div class="rz" id="st-asof"><button type="button" class="rbtn" data-asof aria-pressed="false" title="toggle absolute / relative timestamps page-wide">as of —</button></div>
+    <div class="rz" id="st-tick"><button type="button" class="rbtn" data-tick title="jump to the last tick and lock the cursor">tick —</button></div>
+    <div class="rz" id="st-mode"><span class="chip" data-mode>—</span></div>
+    <div class="rz" id="st-chips">
+      <button type="button" class="chip chip-integrity" data-integrity>integrity —</button>
+      <button type="button" class="chip chip-chain" data-chain title="copy the verify command">chain —</button>
     </div>
-    <div class="live"><span class="dot" id="dot"></span><span id="livetxt">loading…</span></div>
+    <div class="rz" id="st-right">
+      <button type="button" class="rbtn" id="st-refresh" data-refresh title="fetch data.json again">⟳</button>
+      <span class="rout" id="st-refresh-out" data-refresh-out></span>
+      <button type="button" class="rbtn mono" id="st-commit" data-commit title="copy commit hash">—</button>
+      <button type="button" class="rbtn" id="st-keymap" data-keymap aria-haspopup="dialog" aria-controls="ov-keymap" title="keyboard map (?)">?</button>
+    </div>
+  </header>
+
+  <!-- =================================================================== -->
+  <!-- P01 · COMMAND STRIP — shell row 2, 52px                              -->
+  <!-- =================================================================== -->
+  <div id="p-command" class="cmd" data-panel="command" data-area="p01">
+
+    <div class="cmd-funnels" id="cmd-funnels">
+      <div class="funnel" id="cf-cycle"><span class="fl">CYCLE</span><span class="fv" data-v>—</span></div>
+      <div class="funnel" id="cf-session"><span class="fl">SESSION</span><span class="fv" data-v>—</span></div>
+      <div class="funnel" id="cf-book"><span class="fl">BOOK</span><span class="fv" data-v>—</span></div>
+    </div>
+
+    <div class="cmd-kpis" id="cmd-kpis">
+      <span class="kpi" data-kpi="book"><span class="kl">BOOK P&amp;L</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
+      <span class="kpi" data-kpi="realized"><span class="kl">REALIZED</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
+      <span class="kpi" data-kpi="unrealized"><span class="kl">UNREALIZED</span><span class="kv" data-v>—</span><span class="ks" data-spark></span></span>
+      <button type="button" class="kpi" data-kpi="refused" data-tab="refusals"><span class="kl">REFUSED</span><span class="kv" data-v>—</span></button>
+      <button type="button" class="kpi" data-kpi="structures" data-tab="positions"><span class="kl">STRUCTURES</span><span class="kv" data-v>—</span></button>
+      <button type="button" class="kpi" data-kpi="journal" data-tab="all"><span class="kl">JOURNAL</span><span class="kv" data-v>—</span></button>
+    </div>
+
+    <div class="cmd-controls" id="cmd-controls">
+
+      <div class="ctlg"><span class="ctll">RANGE</span>
+        <div class="seg" role="radiogroup" aria-label="Range" id="ctl-range" data-ctl="range">
+          <button type="button" role="radio" aria-checked="false" data-v="1d">1D</button>
+          <button type="button" role="radio" aria-checked="false" data-v="3d">3D</button>
+          <button type="button" role="radio" aria-checked="false" data-v="all">ALL</button>
+        </div>
+      </div>
+
+      <div class="ctlg"><span class="ctll">AXIS</span>
+        <div class="seg" role="radiogroup" aria-label="Axis mode" id="ctl-axis" data-ctl="axis">
+          <button type="button" role="radio" aria-checked="false" data-v="session">SESSION</button>
+          <button type="button" role="radio" aria-checked="false" data-v="time">TIME</button>
+        </div>
+      </div>
+
+      <div class="ctlg"><span class="ctll">BOOKS</span>
+        <div class="chips" id="ctl-books" data-ctl="books">
+          <button type="button" class="chip bk bk-real" aria-pressed="true" data-v="real">REAL</button>
+          <button type="button" class="chip bk bk-nogates" aria-pressed="true" data-v="shadow_nogates">NO-GATES</button>
+          <button type="button" class="chip bk bk-nohedge" aria-pressed="true" data-v="shadow_nohedge">NO-HEDGE</button>
+          <button type="button" class="chip bk bk-naive" aria-pressed="true" data-v="baseline_naive">NAIVE</button>
+        </div>
+      </div>
+
+      <div class="ctlg"><span class="ctll">QUALITY</span>
+        <div class="seg" role="radiogroup" aria-label="Mark quality" id="ctl-quality" data-ctl="quality">
+          <button type="button" role="radio" aria-checked="false" data-v="all">ALL</button>
+          <button type="button" role="radio" aria-checked="false" data-v="clean">CLEAN</button>
+        </div>
+        <span class="ctln" data-quality-excluded></span>
+      </div>
+
+      <div class="ctlg"><span class="ctll">DENSITY</span>
+        <div class="seg" role="radiogroup" aria-label="Density" id="ctl-density" data-ctl="density">
+          <button type="button" role="radio" aria-checked="false" data-v="comfortable">COMFORTABLE</button>
+          <button type="button" role="radio" aria-checked="false" data-v="compact">COMPACT</button>
+        </div>
+      </div>
+
+      <div class="ctlg">
+        <button type="button" class="chip" id="ctl-judge" data-ctl="judge" aria-pressed="false">JUDGE</button>
+        <button type="button" class="chip" id="ctl-export" data-ctl="export">EXPORT CSV</button>
+        <button type="button" class="chip filters" id="ctl-filters" data-ctl="filters" hidden>FILTERS ✕ <span data-n>0</span></button>
+      </div>
+
+    </div>
   </div>
-  <div class="kpis" id="kpis"></div>
-  <div class="recon" id="recon"></div>
-</header>
 
-<div class="grid">
-  <div>
-    <section class="panel">
-      <h2>Signal <em id="dq"></em></h2>
-      <div id="signals"></div>
-      <div class="regime" id="regime"></div>
+  <!-- =================================================================== -->
+  <!-- BODY — 12 × 8 fractional grid, eighteen panels                       -->
+  <!-- =================================================================== -->
+  <main id="body">
+
+    <!-- ── COLUMN A · c1–3 · the rail ─────────────────────────────────── -->
+
+    <section class="p a1" id="p-signal" data-panel="signal" data-area="a1">
+      <header class="ph">
+        <h2>SIGNAL</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>signals · series.signal</span><span>panels-ab.js · TDP.signal</span></div>
+      </div>
+      <footer class="pf" data-provenance>signals · series.signal · params.regime</footer>
     </section>
-    <section class="panel" style="margin-top:18px">
-      <h2>Book greeks <em>dollar terms</em></h2>
-      <div id="greeks"></div>
+
+    <section class="p a2" id="p-tree" data-panel="tree" data-area="a2">
+      <header class="ph">
+        <h2>CONTEXT TREE</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>params.universe · positions · gate_defs · series.books.real</span><span>panels-ab.js · TDP.tree</span></div>
+      </div>
+      <footer class="pf" data-provenance>params.universe · positions · gate_defs · series.gates · series.books.real</footer>
     </section>
+
+    <section class="p a3" id="p-authority" data-panel="authority" data-area="a3">
+      <header class="ph">
+        <h2>AUTHORITY MAP</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>desk · series.desk · series.gates · verification</span><span>panels-ab.js · TDP.authority</span></div>
+      </div>
+      <footer class="pf" data-provenance>desk · series.desk · series.gates · verification · params.sizing · params.risk</footer>
+    </section>
+
+    <section class="p a4" id="p-weakness" data-panel="weakness" data-area="a4">
+      <header class="ph">
+        <h2>KNOWN WEAKNESSES</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books · trades · quotes · marks_quarantined · positions.unfilled</span><span>panels-ab.js · TDP.weakness</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books · trades · quotes · desk · positions · marks_quarantined</footer>
+    </section>
+
+    <!-- ── COLUMN B · c3–7 · the chart stack ──────────────────────────── -->
+
+    <section class="p b1" id="p-ledger" data-panel="ledger" data-area="b1">
+      <header class="ph">
+        <h2>ABLATION LEDGER</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books.*</span><span>panels-ab.js · TDP.ledger</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books.{real,shadow_nogates,shadow_nohedge,baseline_naive}</footer>
+    </section>
+
+    <section class="p b2" id="p-equity" data-panel="equity" data-area="b2">
+      <header class="ph">
+        <h2>EQUITY &amp; ABLATION</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books.* · series.derisk · decisions</span><span>panels-ab.js · TDP.equity</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books.* · series.derisk · decisions · kv.high_watermark · series.quarantine</footer>
+    </section>
+
+    <section class="p b3" id="p-thesis" data-panel="thesis" data-area="b3">
+      <header class="ph">
+        <h2>IMPLIED vs REALIZED</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.signal</span><span>panels-ab.js · TDP.thesis</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.signal · params.regime · series.refusals · series.derisk</footer>
+    </section>
+
+    <section class="p b4" id="p-greeks" data-panel="greeks" data-area="b4">
+      <header class="ph">
+        <h2>GREEKS</h2>
+        <div class="pc" data-controls><span class="chip lock" data-lock title="the three shadow books store exactly 0.0 for delta, theta and vega on all 87 rows">REAL BOOK ONLY</span></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.books.real[].d · .th · .vg</span><span>panels-ab.js · TDP.greeks</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.books.real[].{d,th,vg} · real book only</footer>
+    </section>
+
+    <section class="p b5" id="p-ribbon" data-panel="ribbon" data-area="b5">
+      <header class="ph">
+        <h2>CONTEXT &amp; DESK RIBBON</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.desk · series.derisk · series.signal</span><span>panels-ab.js · TDP.ribbon</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.desk · series.derisk · series.signal · owner of the shared x-axis and the brush</footer>
+    </section>
+
+    <!-- ── COLUMN C · c7–10 · the evidence stack ──────────────────────── -->
+
+    <section class="p c1" id="p-matrix" data-panel="matrix" data-area="c1">
+      <header class="ph">
+        <h2>GATE MATRIX</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.gates · gate_defs</span><span>panels-c.js · TDP.matrix</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.gates[].r · gate_defs · rows built from the union of keys present</footer>
+    </section>
+
+    <section class="p c2" id="p-ladder" data-panel="ladder" data-area="c2">
+      <header class="ph">
+        <h2>RISK LADDER</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>limits · params.risk · series.gates[].d</span><span>panels-c.js · TDP.ladder</span></div>
+      </div>
+      <footer class="pf" data-provenance>limits · params.risk · used side requires series.gates[].d</footer>
+    </section>
+
+    <section class="p c3" id="p-refusals" data-panel="refusals" data-area="c3">
+      <header class="ph">
+        <h2>REFUSALS</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>refusals.by_gate · series.refusals · series.gates</span><span>panels-c.js · TDP.refusals</span></div>
+      </div>
+      <footer class="pf" data-provenance>refusals.by_gate · refusals.by_kind · series.gates · a refusal names only the first failing gate; the matrix counts every failure</footer>
+    </section>
+
+    <section class="p c4" id="p-blotter" data-panel="blotter" data-area="c4">
+      <header class="ph">
+        <h2>BLOTTER</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>decisions · series.refusals · positions · trades · series.gates · series.desk · series.integrity</span><span>panels-c.js · TDP.blotter</span></div>
+      </div>
+      <footer class="pf" data-provenance>decisions · series.refusals · positions · trades · series.gates · series.desk · series.integrity</footer>
+    </section>
+
+    <!-- ── COLUMN D · c10–13 · proof and detail ───────────────────────── -->
+
+    <section class="p d1" id="p-recon" data-panel="recon" data-area="d1">
+      <header class="ph">
+        <h2>RECONCILIATION</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>broker · book · quotes</span><span>panels-d.js · TDP.recon</span></div>
+      </div>
+      <footer class="pf" data-provenance>broker · book · quotes · series.brokercheck · history requires series.books.real[].eq</footer>
+    </section>
+
+    <section class="p d2" id="p-integrity" data-panel="integrity" data-area="d2">
+      <header class="ph">
+        <h2>INTEGRITY &amp; CHAIN</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>series.integrity · verification</span><span>panels-d.js · TDP.integrity</span></div>
+      </div>
+      <footer class="pf" data-provenance>series.integrity · verification.{chain_ok,chain_msg,journal_entries,test_defs,tests_collected,devlog,claims}</footer>
+    </section>
+
+    <section class="p d3" id="p-trades" data-panel="trades" data-area="d3">
+      <header class="ph">
+        <h2>CLOSED TRADES</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>trades</span><span>panels-d.js · TDP.trades</span></div>
+      </div>
+      <footer class="pf" data-provenance>trades[] · pnl / max_loss / hours · no rolling statistic is drawn at n=6</footer>
+    </section>
+
+    <section class="p d4" id="p-deck" data-panel="deck" data-area="d4">
+      <header class="ph">
+        <h2>DECK</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>positions[].legs · series.manage · params · verification.claims</span><span>panels-d.js · TDP.deck</span></div>
+      </div>
+      <footer class="pf" data-provenance>positions[].legs · series.manage · params · verification.claims</footer>
+    </section>
+
+    <section class="p d5" id="p-inspector" data-panel="inspector" data-area="d5">
+      <header class="ph">
+        <h2>INSPECTOR</h2>
+        <div class="pc" data-controls></div>
+        <div class="pr" data-readout>—</div>
+      </header>
+      <div class="pb" data-body>
+        <div class="notpub" data-boot><b>not rendered</b><span>S.sel — type-polymorphic</span><span>panels-d.js · TDP.inspector</span></div>
+      </div>
+      <footer class="pf" data-provenance>driven by the selection · footer links to the raw journal record</footer>
+    </section>
+
+  </main>
+
+  <!-- =================================================================== -->
+  <!-- P99 · FOOTER — shell row 4, 20px                                     -->
+  <!-- =================================================================== -->
+  <footer id="p-footer" class="foot" data-panel="footer" data-area="p99" title="1–8 blotter tabs · ←/→ step cursor · Shift+←/→ step a session · Home/End ends · . lock cursor · [ ] deck · d density · j judge · a axis · u quality · b baseline · i inspector · f blotter search · c copy view link · x export · ? keymap · Esc unwind">
+    <span class="fseg">paper trading only</span>
+    <span class="fseg">append-only journal: no update path and no delete path exists in the codebase, and every line carries the SHA-256 of the one before it</span>
+    <span class="fseg">every figure from data.json @ <button type="button" class="rbtn mono" data-commit title="copy commit hash">—</button>, generated <span class="mono" data-generated>—</span></span>
+    <span class="fseg">scheduler 13:30–20:00 UTC Mon–Fri, every 15 min</span>
+    <span class="fseg right"><a href="index.html" target="_blank" rel="noopener">⤢ open standalone</a></span>
+  </footer>
+
+</div><!-- /#shell -->
+
+<!-- ===================================================================== -->
+<!-- OVERLAY 1 · RAW RECORD DRAWER — 420px, over column D only              -->
+<!-- ===================================================================== -->
+<aside id="ov-raw" class="ov ov-drawer" role="dialog" aria-modal="false" aria-labelledby="ov-raw-title" hidden>
+  <header class="ovh">
+    <h2 id="ov-raw-title">RAW RECORD</h2>
+    <div class="ovc">
+      <button type="button" class="chip" data-copy>⧉ COPY</button>
+      <button type="button" class="rbtn" data-close aria-label="close (Esc)">✕</button>
+    </div>
+  </header>
+  <div class="ovb" data-body>
+    <div class="notpub" data-boot><b>no record selected</b><span>decisions[].d · series.gates[].d</span><span>app.js · TD.drawer</span></div>
   </div>
+  <footer class="ovf" data-provenance>one journal object, verbatim · data/journal/desk.jsonl</footer>
+</aside>
 
-  <section class="panel">
-    <h2>Four books, same ticks <em id="chartsub"></em></h2>
-    <div class="chartwrap"><svg class="chart" id="chart" viewBox="0 0 900 300"
-      role="img" aria-label="P&L of four counterfactual books on identical inputs"></svg></div>
-    <div class="legend" id="legend"></div>
-    <p class="caveat"><b>This is a bound, not a like-for-like P&amp;L.</b> The shadow books record
-      every candidate and never close a winner, so their curves measure what refusing nothing
-      would have cost — they do not price the gates. The like-for-like fact is beside it:
-      <span id="refcount">—</span> entries refused this week, each naming the rule that killed it.</p>
-  </section>
-
-  <div>
-    <section class="panel">
-      <h2>Risk authority <em>earned, not granted</em></h2>
-      <div id="risk"></div>
-    </section>
-    <section class="panel" style="margin-top:18px">
-      <h2>Session</h2>
-      <div id="session"></div>
-    </section>
+<!-- ===================================================================== -->
+<!-- OVERLAY 2 · KEYMAP — 480×360 centred                                   -->
+<!-- ===================================================================== -->
+<aside id="ov-keymap" class="ov ov-centre" role="dialog" aria-modal="true" aria-labelledby="ov-keymap-title" hidden>
+  <header class="ovh">
+    <h2 id="ov-keymap-title">KEYBOARD</h2>
+    <div class="ovc">
+      <button type="button" class="rbtn" data-close aria-label="close (Esc)">✕</button>
+    </div>
+  </header>
+  <div class="ovb" data-body>
+    <dl class="keys">
+      <dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>blotter tabs</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>step the cursor one tick</dd>
+      <dt><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd></dt><dd>step one session</dd>
+      <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>first / last tick</dd>
+      <dt><kbd>.</kbd></dt><dd>lock / unlock the cursor</dd>
+      <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>cycle the deck sub-view</dd>
+      <dt><kbd>d</kbd></dt><dd>density</dd>
+      <dt><kbd>j</kbd></dt><dd>judge mode</dd>
+      <dt><kbd>a</kbd></dt><dd>axis mode — session / time</dd>
+      <dt><kbd>u</kbd></dt><dd>quality — all / clean</dd>
+      <dt><kbd>b</kbd></dt><dd>cycle the ablation baseline</dd>
+      <dt><kbd>i</kbd></dt><dd>focus the inspector (opens the drawer at M and S)</dd>
+      <dt><kbd>f</kbd></dt><dd>focus the blotter search</dd>
+      <dt><kbd>c</kbd></dt><dd>copy a link to this exact view</dd>
+      <dt><kbd>x</kbd></dt><dd>export the current blotter view as CSV</dd>
+      <dt><kbd>?</kbd></dt><dd>this card</dd>
+      <dt><kbd>Esc</kbd></dt><dd>unwind: close overlay → clear selection → unlock cursor</dd>
+    </dl>
   </div>
-</div>
+  <footer class="ovf" data-provenance>every shortcut on the page · there is no command palette</footer>
+</aside>
 
-<div class="tabs" role="tablist" id="tabs">
-  <button role="tab" aria-selected="true" data-t="pos">Positions</button>
-  <button role="tab" aria-selected="false" data-t="dec">Decisions</button>
-  <button role="tab" aria-selected="false" data-t="ref">Refusals</button>
-  <button role="tab" aria-selected="false" data-t="ver">Verification</button>
-</div>
-<div class="tabpanel" id="p-pos"></div>
-<div class="tabpanel" id="p-dec" hidden></div>
-<div class="tabpanel" id="p-ref" hidden></div>
-<div class="tabpanel" id="p-ver" hidden></div>
-
-<footer>
-  <span id="foot">—</span>
-  <span>Paper trading only · hypothetical results · not investment advice</span>
-</footer>
-</div>
-
-<script>
-const $ = s => document.querySelector(s);
-const money = (v, d=2) => (v<0?"−":"+") + "$" + Math.abs(v).toLocaleString("en-US",
-  {minimumFractionDigits:d, maximumFractionDigits:d});
-const plain = v => "$" + v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-const esc = s => String(s??"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const cls = v => v>=0 ? "up" : "down";
-
-const BOOKS = [
-  {k:"real",           name:"real — the desk",        c:"#2FD98F", w:2.6},
-  {k:"shadow_nogates", name:"same book, no gates",    c:"#FF5A47", w:1.6},
-  {k:"shadow_nohedge", name:"real, minus the hedge",  c:"#5B9DFF", w:1.4},
-  {k:"baseline_naive", name:"headline → buy option",  c:"#8E8E88", w:1.4},
-];
-const off = new Set();
-
-function render(d){
-  /* ---- liveness ---- */
-  const gen = new Date(d.generated_utc + (d.generated_utc.endsWith("Z")?"":"Z"));
-  const mins = Math.round((Date.now() - gen.getTime())/60000);
-  $("#dot").className = "dot" + (mins > 45 ? " stale" : "");
-  $("#livetxt").textContent = `last tick ${(d.last_tick_utc||"—").slice(11,16)}Z · page built ${
-    d.generated_utc.slice(11,16)}Z${mins>45?` · ${mins}m ago`:""}`;
-
-  /* ---- kpis: broker and book kept apart, deliberately ---- */
-  const b = d.broker, bk = d.book;
-  $("#kpis").innerHTML = [
-    b ? `<div class="kpi"><span class="lab">Account equity · broker</span>
-        <span class="val">${plain(b.equity)}</span>
-        <span class="sub">Alpaca, ${b.asof_utc.slice(11,16)}Z · ${d.broker_stale?"as published":"authoritative"}</span></div>` : "",
-    `<div class="kpi"><span class="lab">Book P&L · marked</span>
-      <span class="val ${cls(bk.pnl)}">${money(bk.pnl)}</span>
-      <span class="sub">at the ${(bk.marked_at||"").slice(11,16)}Z tick · ${bk.pnl_pct>=0?"+":""}${bk.pnl_pct.toFixed(2)}%</span></div>`,
-    `<div class="kpi"><span class="lab">Realized</span>
-      <span class="val ${cls(bk.realized)}">${money(bk.realized)}</span>
-      <span class="sub">${d.counts.structures_closed} closed trades · cannot be lost</span></div>`,
-    `<div class="kpi"><span class="lab">Open risk</span>
-      <span class="val">${plain(d.positions.open.reduce((s,p)=>s+p.max_loss,0))}</span>
-      <span class="sub">${d.positions.open.length} structures · worst case, defined</span></div>`,
-    `<div class="kpi"><span class="lab">Refused</span>
-      <span class="val" style="color:var(--gate)">${d.refusals.total}</span>
-      <span class="sub">entries a rule stopped this week</span></div>`,
-  ].join("");
-
-  /* ---- reconciliation: the arithmetic, not a claim ----------------------
-     Our marks are NBBO mids stamped at a tick; the broker marks at the close.
-     A gap is therefore expected — but only up to the width of the quotes. So
-     the page divides the gap by the contracts that produced it and lets the
-     reader judge that number against a spread, instead of asserting "fine". */
-  $("#recon").hidden = !b;
-  if(b){
-    const marked = 100000 + bk.realized + bk.unrealized;
-    const gap    = marked - b.equity;
-    const ctr    = (d.positions.open||[]).reduce((n,p)=>
-                     n + p.legs.reduce((m,l)=>m+Math.abs(l.qty),0), 0);
-    // an option price is quoted per share and settles ×100, so dollars-of-gap
-    // divided by contracts IS the per-share difference in cents. Compare that
-    // to a quote width, which is the only thing that can honestly excuse it.
-    const cents  = ctr ? Math.abs(gap)/ctr : 0;
-    const q      = d.quotes;
-    const bound  = q ? q.narrowest_c : 10;   // measured, when we have it
-    const state  = Math.abs(gap) <= 5 ? "" : (ctr && cents <= bound ? " lag" : " bad");
-    $("#recon").className = "recon" + state;
-    const sum = `<span class="eq"><b>${plain(b.equity)}</b> <span>broker</span>
-       <span>·</span> <b>${plain(marked)}</b> <span>marked</span></span>`;
-    $("#recon").innerHTML =
-      state === ""   ? `${sum}<span class="tag">closes</span>
-         <span class="note">Equity is read from the account, not computed here. Realized and
-         marked are different kinds of number and are never added without showing the subtraction.</span>`
-    : state === " lag" ? `${sum}<span class="tag">lag ${money(gap)}</span>
-         <span class="note">$${Math.abs(gap).toFixed(2)} across ${ctr} open contracts is
-         <b>${cents.toFixed(1)}¢ each</b> — ${q
-           ? `narrower than the tightest of those ${q.legs} quotes (${q.narrowest_c}¢; median ${q.median_c}¢, widest ${q.widest_c}¢)`
-           : `inside a normal quote width`}. We mark at the NBBO mid at
-         ${bk.marked_at.slice(11,16)}Z; the broker marks at the official close. Printed, not netted away.</span>`
-    :                `${sum}<span class="tag">gap ${money(gap)}</span>
-         <span class="note">${ctr ? cents.toFixed(1)+"¢ per open contract" : "no open contracts"} —
-         wider than ${q ? `the tightest quote we hold (${q.narrowest_c}¢)` : "a quote"} can explain. Treat the broker figure as the true one and
-         <code>python tools/broker_check.py</code> for the per-leg difference.</span>`;
-  }
-
-  /* ---- signals ---- */
-  const s = d.signals, pct = v => v==null ? "—" : (v*100).toFixed(2)+"%";
-  $("#dq").textContent = s.data_quality || "";
-  $("#signals").innerHTML = [
-    ["SPY spot", s.spot==null?"—":s.spot.toFixed(2)],
-    ["Implied vol · ATM", pct(s.atm_iv)],
-    ["Realized vol · 20d", pct(s.rv20)],
-    ["Premium over realized", s.atm_iv==null?"—":((s.atm_iv-s.rv20)*100).toFixed(1)+" pts"],
-    ["IV ÷ RV", s.rv20 ? (s.atm_iv/s.rv20).toFixed(2)+"×" : "—"],
-  ].map(([k,v])=>`<div class="sig"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
-  const REG = {rich:"The market is overcharging for movement. Sell defined-risk premium.",
-               cheap:"Movement is underpriced. Buy convexity, micro size.",
-               neutral:"Neither. Widen the strikes, halve the size."};
-  $("#regime").innerHTML = `<b>${s.regime||"—"}</b><span>${REG[s.regime]||""}</span>`;
-
-  /* ---- greeks ---- */
-  const g = d.greeks || {delta:0,theta:0,vega:0};
-  $("#greeks").innerHTML = [
-    ["Theta", money(g.theta), "per day, if nothing moves"],
-    ["Delta", money(g.delta), "per $1 move in SPY"],
-    ["Vega",  money(g.vega),  "per volatility point"],
-  ].map(([k,v,w])=>`<div class="meter"><div class="row"><span>${k}</span>
-      <b class="${v.startsWith("−")?"down":"up"}">${v}</b></div>
-      <div class="faint" style="font-size:11px">${w}</div></div>`).join("");
-
-  /* ---- risk authority ---- */
-  const openRisk = d.positions.open.reduce((s,p)=>s+p.max_loss,0);
-  const eq = b ? b.equity : 100000;
-  const meters = [
-    ["Portfolio worst case", openRisk, eq*0.08, "8% ceiling — the number the strategy was built around"],
-    ["Per structure", Math.max(0,...d.positions.open.map(p=>p.max_loss)), eq*0.0125, "1.25% of equity, each"],
-  ];
-  $("#risk").innerHTML = meters.map(([k,v,cap,w])=>{
-    const f = Math.min(100, v/cap*100);
-    return `<div class="meter"><div class="row"><span>${k}</span>
-      <b>${plain(v)} <span class="faint">/ ${plain(cap)}</span></b></div>
-      <div class="bar"><i class="${f>85?"full":f>60?"warn":""}" style="width:${f}%"></i></div>
-      <div class="faint" style="font-size:10.5px;margin-top:5px">${w}</div></div>`;
-  }).join("");
-
-  /* ---- session ---- */
-  $("#session").innerHTML = [
-    ["Ticks", d.counts.ticks], ["Live orders", d.counts.orders_live],
-    ["Desk meetings", d.desk.meetings], ["LLM-dark meetings", d.desk.llm_dark],
-    ["Marks quarantined", d.marks_quarantined],
-  ].map(([k,v])=>`<div class="sig"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
-
-  /* ---- chart ---- */
-  $("#refcount").textContent = d.refusals.total;
-  drawChart(d);
-  $("#legend").innerHTML = BOOKS.map(bk2=>`<span data-k="${bk2.k}" class="${off.has(bk2.k)?"off":""}">
-    <i style="background:${bk2.c}"></i>${bk2.name}</span>`).join("");
-  $("#legend").querySelectorAll("span").forEach(el=>el.onclick=()=>{
-    const k = el.dataset.k; off.has(k) ? off.delete(k) : off.add(k);
-    el.classList.toggle("off"); drawChart(d);
-  });
-
-  /* ---- positions ---- */
-  const legTxt = p => p.legs.map(l=>`${l.qty>0?"+":"−"}${l.strike??""}${l.right}`).join(" ");
-  $("#p-pos").innerHTML = `<div class="scroll"><table><thead><tr>
-    <th>Structure</th><th>Legs</th><th>Credit</th><th>Worst case</th><th>Opened</th><th>Result</th>
-    </tr></thead><tbody>` +
-    [...d.positions.open, ...d.positions.closed].map(p=>`<tr>
-      <td><span class="chip ${p.status==="closed"?"closed":p.sleeve==="hedge"?"hedge":"open"}">${p.status}</span>
-        <div style="margin-top:5px">${p.kind.replace(/_/g," ")} <span class="faint mono">${p.id}</span></div></td>
-      <td class="n faint">${p.legs[0]?.underlying||""} ${legTxt(p)}</td>
-      <td class="n ${p.credit>=0?"up":"down"}">${money(p.credit)}</td>
-      <td class="n dim">${plain(p.max_loss)}</td>
-      <td class="n faint">${p.opened.replace("T"," ")}</td>
-      <td class="n ${p.pnl==null?"":cls(p.pnl)}">${p.pnl==null?"—":money(p.pnl,0)}</td>
-    </tr>`).join("") + `</tbody></table></div>`;
-
-  /* ---- decisions ---- */
-  $("#p-dec").innerHTML = `<div class="scroll"><table><thead><tr>
-    <th>Time</th><th>Event</th><th>Structure</th><th>Action</th><th>Reason, in the desk's words</th><th>Est.</th>
-    </tr></thead><tbody>` + d.decisions.slice().reverse().slice(0,160).map(x=>`<tr>
-      <td class="n faint">${x.t.replace("T"," ")}</td>
-      <td class="n dim">${x.kind}</td>
-      <td class="n faint">${x.id||"—"}</td>
-      <td class="n">${esc(x.action)}</td>
-      <td>${esc(x.reason)||"—"}</td>
-      <td class="n ${x.pnl==null?"":cls(x.pnl)}">${x.pnl==null?"":money(x.pnl,0)}</td>
-    </tr>`).join("") + `</tbody></table></div>`;
-
-  /* ---- refusals ---- */
-  const GN = {g5g6_liquidity:"Liquidity — spread too wide or one-sided",
-    g17_event_derisk:"Event window — no new risk before a high-class release",
-    g9_daily_budget:"Daily budget — 3.5% of equity per day, spent",
-    g10_time_window:"Session edge — first or last 15 minutes",
-    g8_portfolio_worst_case:"Portfolio worst case — the payoff grid breached the budget",
-    g7_structure_size:"Structure size — over 1.25% of equity",
-    g14_halt:"Drawdown halt", g3_expiry:"Expiry horizon", g2_universe:"Universe"};
-  $("#p-ref").innerHTML = `<div class="pad dim" style="padding-left:0">A refusal is a first-class
-    output. Every one names the rule that produced it.</div><div class="gates">` +
-    Object.entries(d.refusals.by_gate).map(([g,n])=>`<div class="gate${n?"":" zero"}">
-      <div class="g">${g}</div><div class="c">${n}</div>
-      <div class="w">${GN[g]||""}</div></div>`).join("") + `</div>`;
-
-  /* ---- verification ---- */
-  const v = d.verification;
-  $("#p-ver").innerHTML = `<div class="verify">
-    <div class="vcard"><b>${v.chain_ok?"intact":"BROKEN"}</b><div class="t">Hash chain over
-      ${v.journal_entries.toLocaleString("en-US")} journal entries</div>
-      <div class="faint" style="font-size:11.5px">Each line carries the SHA-256 of the one before it.</div>
-      <code>python -m thetadesk.main verify-journal</code></div>
-    <div class="vcard"><b>91 / 91</b><div class="t">Snapshots that replay bit-for-bit</div>
-      <div class="faint" style="font-size:11.5px">Every tick stored its inputs; the signal layer
-        recomputes with zero divergence.</div><code>python tools/replay.py</code></div>
-    <div class="vcard"><b>${v.claims_total} / ${v.claims_total}</b><div class="t">Write-up claims that
-      regenerate from a fresh clone</div>
-      <div class="faint" style="font-size:11.5px">No credentials, no install. Verified on four clones.</div>
-      <code>python tools/reconcile.py</code></div>
-    <div class="vcard"><b>${v.test_defs}</b><div class="t">Test functions
-      <span class="faint">${v.tests_collected ? v.tests_collected + " cases collected" : "collection not run on this host"}</span></div>
-      <div class="faint" style="font-size:11.5px">Two numbers because parametrised tests expand —
-        run it and both match.</div><code>python -m pytest tests -q</code></div>
-    <div class="vcard"><b>${v.devlog}</b><div class="t">Documented self-corrections</div>
-      <div class="faint" style="font-size:11.5px">Including the $208 exit the desk found by replaying
-        its own snapshot, and the chain fork it refused to publish.</div>
-      <code>DEVLOG.md</code></div>
-  </div>
-  <div class="scroll" style="margin-top:18px"><table><thead><tr><th>#</th><th>Claim</th><th>Value</th>
-    </tr></thead><tbody>${v.claims.map(c=>`<tr><td class="n faint">${c.n}</td>
-    <td class="mono" style="font-size:12px">${esc(c.name)}</td>
-    <td class="n">${esc(c.value)}</td></tr>`).join("")}</tbody></table></div>`;
-
-  $("#foot").innerHTML = `Generated ${d.generated_utc.replace("T"," ")}Z from commit
-    <span class="mono">${d.commit||"—"}</span> · every figure on this page comes from one file`;
-}
-
-function drawChart(d){
-  const svg = $("#chart"), W=900, H=300, L=54, R=14, T=12, B=26;
-  const series = BOOKS.filter(b=>!off.has(b.k)).map(b=>({...b, pts:d.curves[b.k]||[]}));
-  const all = series.flatMap(s=>s.pts.map(p=>p.v));
-  if(!all.length){ svg.innerHTML=""; return; }
-  const n = Math.max(...series.map(s=>s.pts.length));
-  let lo = Math.min(0,...all), hi = Math.max(0,...all);
-  const pad = (hi-lo)*0.12 || 100; lo-=pad; hi+=pad;
-  const X = i => L + (i/Math.max(1,n-1))*(W-L-R);
-  const Y = v => T + (1-(v-lo)/(hi-lo))*(H-T-B);
-  const ticks = 4, out=[];
-  for(let i=0;i<=ticks;i++){
-    const v = lo + (hi-lo)*i/ticks, y = Y(v);
-    out.push(`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="#26262A" stroke-width="1"/>`);
-    out.push(`<text x="${L-9}" y="${y+4}" text-anchor="end" font-family="IBM Plex Mono,monospace"
-      font-size="10.5" fill="#5C5C58">${v>=0?"+":"−"}$${Math.abs(Math.round(v)).toLocaleString("en-US")}</text>`);
-  }
-  out.push(`<line x1="${L}" y1="${Y(0)}" x2="${W-R}" y2="${Y(0)}" stroke="#5C5C58" stroke-width="1"/>`);
-  for(const s of series){
-    if(!s.pts.length) continue;
-    const dpath = s.pts.map((p,i)=>`${i?"L":"M"}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join("");
-    out.push(`<path d="${dpath}" fill="none" stroke="${s.c}" stroke-width="${s.w}"
-      stroke-linejoin="round" stroke-linecap="round"/>`);
-    const last = s.pts[s.pts.length-1];
-    out.push(`<circle cx="${X(s.pts.length-1).toFixed(1)}" cy="${Y(last.v).toFixed(1)}" r="3" fill="${s.c}"/>`);
-  }
-  const first = (d.curves.real[0]||{}).t || "", lastT = (d.curves.real.at(-1)||{}).t || "";
-  out.push(`<text x="${L}" y="${H-6}" font-family="IBM Plex Mono,monospace" font-size="10.5"
-    fill="#5C5C58">${first.slice(5,10)}</text>`);
-  out.push(`<text x="${W-R}" y="${H-6}" text-anchor="end" font-family="IBM Plex Mono,monospace"
-    font-size="10.5" fill="#5C5C58">${lastT.slice(5,10)} ${lastT.slice(11,16)}Z</text>`);
-  svg.innerHTML = out.join("");
-  $("#chartsub").textContent = `${d.curves.real.length} marks · identical inputs`;
-}
-
-$("#tabs").onclick = e => {
-  const btn = e.target.closest("button[data-t]"); if(!btn) return;
-  document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected", b===btn));
-  ["pos","dec","ref","ver"].forEach(t=>$("#p-"+t).hidden = t!==btn.dataset.t);
-};
-
-async function load(){
-  try{
-    // the host defines window.__DATA__; served as a static file there is no
-    // host, so the same page fetches the export beside it
-    if(window.__DATA__){ render(window.__DATA__); return; }
-    const r = await fetch("data.json?" + Math.floor(Date.now()/60000));
-    if(!r.ok) throw new Error(r.status);
-    render(await r.json());
-  }catch(e){
-    $("#kpis").innerHTML = `<div class="err">data.json could not be loaded — ${esc(e.message)}.
-      Run <span class="mono">python tools/site_data.py</span> beside this page.</div>`;
-  }
-}
-load();
-setInterval(load, 60000);
-</script>
+<script src="charts.js"></script>
+<script src="derive.js"></script>
+<script src="panels-ab.js"></script>
+<script src="panels-c.js"></script>
+<script src="panels-d.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" data-density="compact">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>THETA DESK · panels-ab probe</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="probe-boot" style="padding:12px;font:12px monospace;color:#8E8E88">loading index.html skeleton…</div>
+<script src="charts.js"></script>
+<script src="derive.js"></script>
+<script src="panels-ab.js"></script>
+<script>
+/* Stand-alone harness for panels-ab.js.  Loads the REAL index.html skeleton so
+   the probe cannot drift from it, then drives the twelve renderers this file
+   owns through a minimal TD.set().  Not part of the shipped page. */
+(function () {
+  var LOG = [];
+  window.onerror = function (m, s, l, c, e) { LOG.push('ERROR ' + m + ' @' + l + ':' + c); };
+  var S = {
+    range: '3d', axis: 'session', cur: null, locked: false, sel: null,
+    books: ['real', 'shadow_nogates', 'shadow_nohedge', 'baseline_naive'],
+    base: 'nogates', quality: 'all', density: 'compact', judge: false,
+    tab: 'decisions', q: '', from: '', to: '', gate: null, kind: null,
+    underlying: null, deck: 'strikes', solo: null
+  };
+  var D = null, raf = 0;
+  var PANELS = ['signal', 'tree', 'authority', 'weakness', 'ledger', 'equity', 'thesis', 'greeks', 'ribbon'];
+
+  function render() {
+    if (!D) return;
+    document.documentElement.setAttribute('data-density', S.density || 'compact');
+    if (S.judge) document.documentElement.setAttribute('data-judge', '1');
+    else document.documentElement.removeAttribute('data-judge');
+    var t0 = performance.now(), i, id, host, p;
+    var chrome = [['p-status', 'status'], ['p-command', 'command'], ['p-footer', 'footer']];
+    for (i = 0; i < chrome.length; i++) {
+      host = document.getElementById(chrome[i][0]);
+      if (host && TDP[chrome[i][1]]) { try { TDP[chrome[i][1]](host, D, S); } catch (e) { LOG.push('THROW ' + chrome[i][1] + ': ' + e.message); } }
+    }
+    for (i = 0; i < PANELS.length; i++) {
+      id = PANELS[i];
+      p = document.querySelector('[data-panel="' + id + '"]');
+      host = p ? p.querySelector('[data-body]') : null;
+      if (!host || !TDP[id]) continue;
+      var boot = host.querySelector('[data-boot]');
+      if (boot) boot.parentNode.removeChild(boot);
+      try { TDP[id](host, D, S); } catch (e) { LOG.push('THROW ' + id + ': ' + e.message + ' | ' + (e.stack || '').split('\n')[1]); }
+    }
+    window.__probeMs = Math.round(performance.now() - t0);
+    window.__probeLog = LOG;
+  }
+  window.TD = {
+    S: S,
+    set: function (patch) {
+      for (var k in patch) S[k] = patch[k];
+      if (raf) return;
+      raf = requestAnimationFrame(function () { raf = 0; render(); });
+    },
+    goto: function () {},
+    refresh: function () {},
+    keymap: function () {}
+  };
+
+  fetch('index.html').then(function (r) { return r.text(); }).then(function (t) {
+    var body = t.split('<body>')[1].split('</body>')[0].replace(/<script[\s\S]*?<\/script>/g, '');
+    document.body.innerHTML = body;
+    return fetch('data.json').then(function (r2) { return r2.json(); });
+  }).then(function (data) {
+    D = TDD.derive(data);
+    window.__D = D;
+    TDC.cursor.onLock(function (i, locked) { TD.set({ cur: i, locked: locked }); });
+    render();
+    window.__ready = true;
+  }).catch(function (e) {
+    document.body.innerHTML = '<pre style="color:#FF5A47;padding:12px">' + e.message +
+      '\n\nserve this directory: python -m http.server 8765 --directory dashboard/web</pre>';
+  });
+})();
+</script>
+</body>
+</html>
