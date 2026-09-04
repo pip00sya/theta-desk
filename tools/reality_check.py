@@ -107,7 +107,7 @@ def check() -> tuple[list[dict], list[dict]]:
         "signals lines carrying a spot")
 
     # ---- the store, queried directly ---------------------------------------
-    st = con.execute("select status, count(*) n, sum(closed_pnl) p, sum(max_loss) ml "
+    st = con.execute("select status, count(*) n, sum(closed_pnl) p, sum(max_loss * qty) ml "
                      "from structures group by status").fetchall()
     by = {r["status"]: r for r in st}
     total = sum(r["n"] for r in st)
@@ -120,11 +120,12 @@ def check() -> tuple[list[dict], list[dict]]:
                            "where status='closed'").fetchone()["v"]
     cmp("realized P&L", d["book"]["realized"], round(float(realized), 2),
         "sum(closed_pnl) where closed", tol=0.011)
+    # max_loss on the row is per unit; the structure's worst case is × qty
     open_risk = con.execute(
-        "select coalesce(sum(max_loss),0) v from structures "
+        "select coalesce(sum(max_loss * qty),0) v from structures "
         "where status in ('open','pending','closing','submitting')").fetchone()["v"]
     cmp("open worst case", sum(p["max_loss"] for p in d["positions"]["open"]),
-        round(float(open_risk)), "sum(max_loss) of open structures", tol=1.0)
+        round(float(open_risk)), "sum(max_loss × qty) of open structures", tol=1.0)
 
     last = con.execute("select * from marks where book='real' order by ts desc limit 1").fetchone()
     if last:
@@ -140,13 +141,44 @@ def check() -> tuple[list[dict], list[dict]]:
     for k, j in (("atm_iv", "atm_iv"), ("rv20", "rv20"), ("spot", "spot")):
         cmp("signal " + k, d["signals"][k], sig.get(j), "last signals line", tol=1e-9)
 
-    # ---- the ceilings, from config × equity --------------------------------
+    # ---- the ceilings: the ladder's rung, climbed here by hand -------------
+    # (DEVLOG #36) The export asks engine/ladder.py which rung applies. This
+    # walks the same table with plain loops — count the closed core rows, take
+    # the highest rung the count reaches while realized >= 0, give rungs back
+    # for drawdown — so a wrong rung in the export cannot agree with itself.
     eq = d["broker"]["equity"] if d.get("broker") else START_EQUITY
     r = cfg.raw["risk"]
+    lad = cfg.raw.get("ladder") or {}
+    closed_core = con.execute("select count(*) n from structures "
+                              "where status='closed' and sleeve='core'").fetchone()["n"]
+    realized_all = float(con.execute("select coalesce(sum(closed_pnl),0) v from structures "
+                                     "where status='closed'").fetchone()["v"])
+    hwm_row = con.execute("select value from kv where key='high_watermark'").fetchone()
+    hwm = float(hwm_row["value"]) if hwm_row and hwm_row["value"] else 0.0
+    if lad.get("enabled"):
+        rungs = lad["tiers"]
+        i = 0
+        if realized_all >= 0 or not lad.get("promote_requires_realized_nonneg", True):
+            for k, t in enumerate(rungs):
+                if closed_core >= int(t["min_closed"]):
+                    i = k
+        dd = max(0.0, 1.0 - eq / hwm) if hwm > 0 else 0.0
+        if dd >= float(lad.get("demote_to_floor_at_drawdown", 0.035)):
+            i = 0
+        elif dd >= float(lad.get("demote_one_tier_at_drawdown", 0.02)):
+            i = max(0, i - 1)
+        rung = rungs[i]
+        per_frac, cap_frac, name = (float(rung["per_structure_frac"]),
+                                    float(rung["portfolio_worst_case_cap"]), rung["name"])
+    else:
+        per_frac, cap_frac, name = (r["per_structure_max_loss_frac"],
+                                    r["portfolio_worst_case_cap"], "fixed")
+    cmp("ladder rung", (d.get("ladder") or {}).get("tier"), name,
+        f"{closed_core} closed core rows, realized {realized_all:+,.0f}, hwm {hwm:,.0f}")
     cmp("ceiling, per structure", d["limits"]["per_structure"],
-        round(eq * r["per_structure_max_loss_frac"], 2), "equity × config", tol=0.011)
+        round(eq * per_frac, 2), "equity × the rung's fraction", tol=0.011)
     cmp("ceiling, portfolio cap", d["limits"]["portfolio_cap"],
-        round(eq * r["portfolio_worst_case_cap"], 2), "equity × config", tol=0.011)
+        round(eq * cap_frac, 2), "equity × the rung's cap", tol=0.011)
 
     # ---- the chain ---------------------------------------------------------
     vr = subprocess.run([sys.executable, "-m", "thetadesk.main", "verify-journal"],

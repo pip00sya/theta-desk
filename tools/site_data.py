@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from thetadesk import config as cfgmod                 # noqa: E402
 from thetadesk.audit.journal import Journal            # noqa: E402
+from thetadesk.engine import ladder as ladmod          # noqa: E402
 from thetadesk.state.store import Store                # noqa: E402
 
 START_EQUITY = 100_000.0
@@ -98,13 +99,13 @@ GATE_LABELS = {
                                 []),
     "g5g6_liquidity":          ("Liquidity", "two-sided quotes, relative spread inside the limit",
                                 ["liquidity.max_rel_spread", "liquidity.require_two_sided"]),
-    "g7_structure_size":       ("Structure size", "one structure may not risk more than its share of equity",
-                                ["risk.per_structure_max_loss_frac"]),
+    "g7_structure_size":       ("Structure size", "one structure may not risk more than its rung's share of equity",
+                                ["ladder.tiers[].per_structure_frac", "risk.per_structure_max_loss_frac (floor)"]),
     "g8_portfolio_worst_case": ("Portfolio worst case", "book + candidate repriced over a ±20% grid",
-                                ["risk.portfolio_worst_case_frac", "risk.portfolio_worst_case_cap",
+                                ["ladder.tiers[].portfolio_worst_case_frac", "ladder.tiers[].portfolio_worst_case_cap",
                                  "risk.price_grid_low", "risk.price_grid_high", "risk.vol_shock_up_rel"]),
-    "g9_daily_budget":         ("Daily budget", "new risk opened today against the day's allowance",
-                                ["risk.daily_new_risk_frac"]),
+    "g9_daily_budget":         ("Daily budget", "new risk opened today against the rung's daily allowance",
+                                ["ladder.tiers[].daily_new_risk_frac", "risk.daily_new_risk_frac (floor)"]),
     "g10_time_window":         ("Time window", "no entries in the first or last minutes of a session",
                                 ["timing.no_trade_first_min", "timing.no_trade_last_min"]),
     "g14_halt":                ("Drawdown halt", "new risk stops after a drawdown from the high-water mark",
@@ -265,13 +266,18 @@ def _series(entries: list[dict], store, cfg, equity: float, store_path: Path):
         daily = {}
 
     r = cfg.raw.get("risk", {})
+    # DEVLOG #36: the three sized ceilings come from the ladder's rung — the
+    # same function the tick calls before it sizes — not from the constants
+    lad = ladmod.resolve(cfg.raw, store.closed_core_count(), store.realized_gains(), equity,
+                         float(store.get_kv("high_watermark", "0") or 0))
     limits = {
-        "per_structure":  round(equity * r.get("per_structure_max_loss_frac", 0), 2),
-        "portfolio":      round(equity * r.get("portfolio_worst_case_frac", 0), 2),
-        "portfolio_cap":  round(equity * r.get("portfolio_worst_case_cap", 0), 2),
-        "daily_new":      round(equity * r.get("daily_new_risk_frac", 0), 2),
+        "per_structure":  round(equity * lad.tier.per_structure, 2),
+        "portfolio":      round(equity * lad.tier.book_base, 2),
+        "portfolio_cap":  round(equity * lad.tier.book_cap, 2),
+        "daily_new":      round(equity * lad.tier.daily_new, 2),
         "cheap_sleeve":   round(equity * r.get("cheap_sleeve_budget_frac", 0), 2),
         "drawdown_halt":  round(equity * r.get("drawdown_halt_frac", 0), 2),
+        "ladder": lad.to_dict(),
     }
     series = {"signal": sig, "books": books, "gates": gates, "desk": desk,
               "refusals": refus, "manage": manage, "integrity": integ,
@@ -321,7 +327,10 @@ def build() -> dict:
             "status": s["status"],
             "qty": s["qty"],
             "credit": round(float(s["net_credit"]), 2),
-            "max_loss": round(float(s["max_loss"] or 0)),
+            # the row stores the worst case PER UNIT; the structure's is × lots
+            # (DEVLOG #36 — every lot was 1 until the ladder, so it never showed)
+            "max_loss": round(float(s["max_loss"] or 0) * int(s["qty"] or 1)),
+            "max_loss_unit": round(float(s["max_loss"] or 0)),
             "opened": (s["opened_utc"] or "")[:16],
             "legs": _legs(s),
         }
@@ -429,7 +438,7 @@ def build() -> dict:
     real_now = curves["real"][-1]["v"] if curves["real"] else 0.0
     realized = round(float(store.realized_gains()), 2)
     kv = {k: store.get_kv(k, None) for k in
-          ("high_watermark", "last_tick_mode", "last_tick_ts", "derisk_until")}
+          ("high_watermark", "last_tick_mode", "last_tick_ts", "derisk_until", "last_manage_ts")}
     if kv.get("high_watermark") is not None:
         try:
             kv["high_watermark"] = round(float(kv["high_watermark"]), 2)
@@ -500,6 +509,9 @@ def build() -> dict:
         "commit": head,
         "account": "PA39C10YAMYQ",
         "last_tick_utc": last_tick[:19] if last_tick else None,
+        # the one-minute management pass (DEVLOG #36): exits only, never an entry
+        "last_manage_utc": (kv.get("last_manage_ts") or "")[:19] or None,
+        "ladder": limits["ladder"],
         # broker = authoritative account state. book = what our marks say, at tick
         # granularity. Both are published; neither is presented as the other.
         "broker": broker,

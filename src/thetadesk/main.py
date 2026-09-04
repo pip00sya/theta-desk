@@ -2,6 +2,8 @@
 
 Commands:
   python -m thetadesk.main tick [--dry-run] [--mock]   one full decision cycle
+  python -m thetadesk.main manage [--mock]             one management pass: exits only,
+                                                       never an entry (DEVLOG #36)
   python -m thetadesk.main status                      book & marks summary
   python -m thetadesk.main verify-journal              hash-chain check
 
@@ -26,6 +28,7 @@ from .agents.desk import run_desk, veto_applies
 from .audit import alerts
 from .audit.journal import Journal
 from .data import signals as sigmod
+from .engine import ladder as ladmod
 from .engine import selector as sel
 from .engine.contracts import Leg, OptionContract, Structure
 from .engine.gates import run_entry_gates
@@ -115,6 +118,9 @@ def cmd_tick(args) -> int:
     cfg = cfgmod.load()
     dry = bool(args.dry_run or args.mock)
     rehearsal = bool(args.dry_run and not args.mock)
+    # DEVLOG #36: a management pass is this same pipeline up to and including
+    # the exits, and nothing after — no selector, no desk, no hedge, no entry.
+    manage_only = bool(getattr(args, "manage_only", False))
     if rehearsal and not os.environ.get("THETADESK_DATA_DIR"):
         # DEVLOG #28: a rehearsal on the LIVE store closed real structures with
         # an estimate and bumped the live counters. Point it at a scratch copy.
@@ -125,7 +131,8 @@ def cmd_tick(args) -> int:
     journal = Journal(cfg.journal_dir)
     client = make_client(args.mock)
 
-    journal.append("tick_start", {"mock": args.mock, "dry_run": dry})
+    journal.append("manage_start" if manage_only else "tick_start",
+                   {"mock": args.mock, "dry_run": dry})
 
     # ---- L1: account + clock ---------------------------------------------
     account = client.account()
@@ -139,13 +146,28 @@ def cmd_tick(args) -> int:
     hwm = max(float(store.get_kv("high_watermark", "0") or 0), equity)
     store.set_kv("high_watermark", str(hwm))
 
-    def release_new_risk(s: dict) -> None:
+    # DEVLOG #36: the size ladder — the rung every ceiling is measured against
+    # this tick, from the record and the drawdown. Journaled before anything is
+    # sized, so a reader sees what the desk was ALLOWED before what it did.
+    lad = ladmod.resolve(cfg.raw, store.closed_core_count(), store.realized_gains(),
+                         equity, hwm)
+    if not manage_only:
+        journal.append("ladder", lad.to_dict())
+    store.set_kv("ladder_state", json.dumps(lad.to_dict()))
+
+    def release_new_risk(s: dict, lots: int | None = None,
+                         reason: str = "entry order never filled") -> None:
         """DEVLOG #29c: gate #9 counts new risk when the ORDER IS SENT, which
         is right while it is working (it may fill), but the count was never
         given back when the broker confirmed it never filled. Live on Sep 2:
         $2,425 of a $2,521 daily budget consumed by three condors of which
         exactly one existed — the desk had locked itself out of the session
-        over risk it was not carrying."""
+        over risk it was not carrying.
+
+        DEVLOG #36: the row's max_loss is PER UNIT and the charge was
+        unit × qty, so the release gave back one lot of an n-lot order —
+        invisible while every order was one lot. `lots` releases part of an
+        order (a partial fill adopted at fewer lots than were charged)."""
         try:
             day = (datetime.fromisoformat(s.get("opened_utc") or "")
                    + SESSION_TZ_OFFSET).date().isoformat()
@@ -153,12 +175,13 @@ def cmd_tick(args) -> int:
             return
         if day != _today():
             return                      # yesterday's order, yesterday's budget
-        risk = float(s.get("max_loss") or 0.0)
+        n = int(s["qty"]) if lots is None else int(lots)
+        risk = float(s.get("max_loss") or 0.0) * n
         if risk <= 0:
             return
         store.add_counter(_today(), "new_risk", -risk)
         journal.append("new_risk_released", {"structure_id": s["structure_id"], "risk": risk,
-                                             "reason": "entry order never filled"})
+                                             "lots": n, "reason": reason})
 
     def reconcile_working() -> None:
         # ---- reconcile working close orders (DEVLOG #19) -----------------
@@ -219,6 +242,9 @@ def cmd_tick(args) -> int:
                                     net, "open")
                     if ra.filled_qty and ra.filled_qty != s["qty"]:
                         store.set_qty(ra.structure_id, ra.filled_qty)
+                        # the lots that never filled are not risk (DEVLOG #36)
+                        release_new_risk(s, lots=s["qty"] - ra.filled_qty,
+                                         reason="partial fill: unfilled lots released")
                         alerts.alert("WARN", "partial fill adopted",
                                      f"{s['kind']} {ra.structure_id}: {ra.filled_qty} of {s['qty']}",
                                      journal=journal)
@@ -230,10 +256,11 @@ def cmd_tick(args) -> int:
                                      f"{s['kind']} {ra.structure_id}: intended {intended}, got {net}",
                                      journal=journal)
                     side = "продали премию" if net > 0 else "купили премию"
+                    lots = ra.filled_qty or s["qty"]
                     alerts.alert("INFO", "позиция открыта",
-                                 f"{s['kind']} x{s['qty']}: {side} за "
-                                 f"{abs(net) * 100 * s['qty']:,.0f}$, риск до "
-                                 f"{s['max_loss']:,.0f}$", journal=None)
+                                 f"{s['kind']} x{lots}: {side} за "
+                                 f"{abs(net) * 100 * lots:,.0f}$, риск до "
+                                 f"{s['max_loss'] * lots:,.0f}$", journal=None)
                 elif ra.action == "cancel_unfilled":
                     try:
                         client.cancel_order(ra.order_id)
@@ -323,10 +350,24 @@ def cmd_tick(args) -> int:
     if not is_open:
         reconcile_working()
         ok, why = check_integrity()
+        if manage_only:
+            # not a refusal and not a tick: the fast loop found the exchange shut
+            journal.append("manage_end", {"market_closed": True, "integrity_ok": ok})
+            store.set_kv("last_manage_ts", now.isoformat())
+            print(json.dumps({"manage": True, "market_closed": True}))
+            return 0
         journal.append("market_closed", {"next_open": clock.get("next_open"), "integrity_ok": ok})
         store.set_kv("last_tick_ts", now.isoformat())
         store.set_kv("last_tick_mode", "market_closed")
         print(json.dumps({"market_closed": True, "next_open": clock.get("next_open")}))
+        return 0
+
+    if manage_only and not store.open_structures():
+        # nothing at the broker to manage: one integrity read, no chain fetch
+        ok, why = check_integrity()
+        journal.append("manage_end", {"idle": True, "integrity_ok": ok})
+        store.set_kv("last_manage_ts", now.isoformat())
+        print(json.dumps({"manage": True, "idle": True}))
         return 0
 
     # ---- L1: market data + data-quality gate ------------------------------
@@ -361,6 +402,12 @@ def cmd_tick(args) -> int:
     if dq.mode == "skip":
         reconcile_working()
         check_integrity()
+        if manage_only:
+            # the tick raises the alarm; a pass a minute must not page 390 times
+            journal.append("manage_end", {"skipped": True, "data_quality": dq.to_dict()})
+            store.set_kv("last_manage_ts", now.isoformat())
+            print(json.dumps({"manage": True, "skipped": True, "data_quality": dq.to_dict()}))
+            return 0
         alerts.alert("WARN", "tick skipped: market data failed the quality gate",
                      "; ".join(dq.reasons)[:400], journal=journal)
         store.set_kv("last_tick_ts", now.isoformat())
@@ -415,14 +462,24 @@ def cmd_tick(args) -> int:
     # snapshot for replay — microsecond-unique name, referenced from the
     # journal so replay pairs input and decision exactly (DEVLOG #6)
     snap_path = cfg.snapshot_dir / f"{now:%Y%m%dT%H%M%S_%f}.json"
-    snap_path.parent.mkdir(parents=True, exist_ok=True)
-    snap_path.write_text(json.dumps({
+    snap_doc = {
         "ts": now.isoformat(), "spot": spot, "equity": equity,
         "signals": signals.to_dict(), "chain": chain, "closes": closes,
         "data_quality": dq.to_dict(),
-    }), encoding="utf-8")
-    journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name,
-                               "data_quality": dq.mode, "expiry": expiry})
+    }
+
+    def write_snapshot() -> None:
+        snap_path.parent.mkdir(parents=True, exist_ok=True)
+        snap_path.write_text(json.dumps(snap_doc), encoding="utf-8")
+        journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name,
+                                   "data_quality": dq.mode, "expiry": expiry,
+                                   **({"manage": True} if manage_only else {})})
+
+    # A tick always leaves its snapshot: every decision replays. A management
+    # pass leaves one only when it produces an order (DEVLOG #36): 390 holds a
+    # day are not decisions, and 390 chains a day are 300 MB of nothing.
+    if not manage_only:
+        write_snapshot()
 
     reconcile_working()
 
@@ -441,7 +498,7 @@ def cmd_tick(args) -> int:
     from .engine.gates import g17_event_derisk
     derisk = not g17_event_derisk(now, cfg.events(),
                                   cfg["events"]["derisk_hours_before"]).passed
-    if derisk:
+    if derisk and not manage_only:      # a refusal kind: the tick's to record, once
         journal.append("derisk_mode", {"reason": "high-class event inside window"})
     # DEVLOG #30: the manager knows the regime (only from a clean tick — a
     # mark-only tick must never close positions on a suspect signal) and
@@ -466,8 +523,11 @@ def cmd_tick(args) -> int:
     for sid, pk in peaks.items():
         store.set_kv(f"peak_frac:{sid}", f"{pk:.4f}")
     close_buffer_min = 5   # a close sent in the last minutes rests overnight (DEVLOG #28)
+    if manage_only and any(a.action == "close" for a in actions):
+        write_snapshot()               # an order-producing pass replays like a tick
     for a in actions:
-        journal.append("manage", a.__dict__)
+        if not manage_only or a.action != "hold":
+            journal.append("manage", a.__dict__)   # a pass journals decisions, not holds
         if a.action == "close" and not dry and mins_to_close is not None and mins_to_close < close_buffer_min:
             journal.append("close_deferred", {"structure_id": a.structure_id,
                                               "reason": f"{mins_to_close:.0f}m to close"})
@@ -539,6 +599,20 @@ def cmd_tick(args) -> int:
             store.set_status(a.structure_id, "closed", a.est_pnl)
         elif a.action == "close" and dry:
             journal.append("manage_dry_close", {"structure_id": a.structure_id, "est_pnl": a.est_pnl})
+
+    if manage_only:
+        # ---- the fast loop ends here: it manages, it never opens ------------
+        marks = shadow.mark_all_books(store, spot_map, now, iv_map, store.realized_gains(),
+                                      broker_equity=equity, chain=chain,
+                                      quality="ok" if dq.mode == "full" else "suspect")
+        closes = [a.structure_id for a in actions if a.action == "close"]
+        journal.append("manage_end", {"open": len(live_open), "closes": closes,
+                                      "holds": sum(1 for a in actions if a.action == "hold"),
+                                      "mode": dq.mode, "marks": marks})
+        store.set_kv("last_manage_ts", now.isoformat())
+        print(json.dumps({"manage": True, "open": len(live_open), "closes": closes,
+                          "marks": marks, "mode": dq.mode}))
+        return 0
 
     # ---- selector + desk -------------------------------------------------
     exp_date = date.fromisoformat(expiry)
@@ -696,8 +770,9 @@ def cmd_tick(args) -> int:
                                              else round(before * (1 + h), 2))
                 journal.append("reprice", {"structure_id": sid, "attempt": attempts + 1,
                                            "from": before, "to": cand.structure.net_credit})
-            # sizing: risk budget -> qty
-            per_struct_budget = equity * cfg["risk"]["per_structure_max_loss_frac"]
+            # sizing: risk budget -> qty. The budget is the ladder's rung, not
+            # a constant (DEVLOG #36): 1.25% held every entry at one contract.
+            per_struct_budget = equity * lad.tier.per_structure
             unit_risk = cand.structure.max_loss  # per 1 unit
             qty = int(per_struct_budget * cand.size_mult * desk.size_mult // unit_risk) if unit_risk > 0 else 0
             # DEVLOG #7: minimum viable position — multipliers scale ABOVE one
@@ -709,7 +784,7 @@ def cmd_tick(args) -> int:
                 qty = 1
             if qty < 1:
                 journal.append("size_zero", {"unit_risk": unit_risk,
-                                             "budget": per_struct_budget,
+                                             "budget": per_struct_budget, "tier": lad.tier.name,
                                              "mults": [cand.size_mult, desk.size_mult]})
             else:
                 open_sleeve_debit = sum(
@@ -726,11 +801,11 @@ def cmd_tick(args) -> int:
                     new_risk_today=store.get_counter(_today(), "new_risk"),
                     cfg=cfg, minutes_from_open=mins_from_open,
                     minutes_to_close=mins_to_close, market_open=is_open,
-                    open_sleeve_debit=open_sleeve_debit,
+                    open_sleeve_debit=open_sleeve_debit, tier=lad.tier,
                 )
                 journal.append("gates", {"structure_id": cand.structure.structure_id,
                                          "kind": cand.structure.kind, "qty": qty,
-                                         **report.to_dict()})
+                                         "tier": lad.tier.name, **report.to_dict()})
                 # shadow_nogates records every candidate regardless of the verdict
                 shadow.record_candidate(store, "shadow_nogates", cand.structure.kind,
                                         cand.structure.sleeve, cand.structure.legs, qty,
@@ -843,6 +918,24 @@ def cmd_tick(args) -> int:
 # A tick takes seconds; a lock older than this is a crashed holder. Matches
 # the scheduler's ExecutionTimeLimit so a slow tick cannot be overtaken.
 LOCK_TTL_MIN = 10
+# DEVLOG #36: a tick that lands on a management pass waits for it — a pass
+# holds the lock for seconds, and skipping a whole quarter hour for that would
+# be the wrong trade. Before the fast loop the only other holder was a tick.
+LOCK_WAIT_S = 60.0
+
+
+def _acquire(store: Store, wait_s: float) -> bool:
+    """Take tick_lock, retrying every two seconds for up to wait_s."""
+    import time
+    deadline = time.monotonic() + wait_s
+    while True:
+        now = datetime.now(timezone.utc)
+        if store.try_lock("tick_lock", now.isoformat(),
+                          (now - timedelta(minutes=LOCK_TTL_MIN)).isoformat()):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(2.0)
 
 
 def cmd_tick_locked(args) -> int:
@@ -852,9 +945,7 @@ def cmd_tick_locked(args) -> int:
     client_order_ids). The lock is an atomic sqlite upsert."""
     cfg = cfgmod.load()
     store = Store(cfg.db_path)
-    now = datetime.now(timezone.utc)
-    if not store.try_lock("tick_lock", now.isoformat(),
-                          (now - timedelta(minutes=LOCK_TTL_MIN)).isoformat()):
+    if not _acquire(store, wait_s=LOCK_WAIT_S):
         Journal(cfg.journal_dir).append("tick_skipped_locked",
                                         {"held_since": store.get_kv("tick_lock", "")})
         print("tick skipped: another tick holds the lock", file=sys.stderr)
@@ -873,6 +964,43 @@ def cmd_tick_locked(args) -> int:
         try:
             # a fresh Journal re-reads the chain head the crashed tick left behind
             Journal(cfg.journal_dir).append("tick_crash", {
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc()[-1500:]})
+        except Exception:
+            traceback.print_exc()
+        traceback.print_exc()
+        return 1
+    finally:
+        store.set_kv("tick_lock", "")
+
+
+def cmd_manage_locked(args) -> int:
+    """DEVLOG #36: one management pass — reconcile working orders, check the
+    book against the broker, re-mark every open structure on a fresh chain,
+    apply the exit rules, send the closes — under the tick's own lock. Called
+    every minute by tools/manager.py while the exchange is open.
+
+    It cannot open anything: cmd_tick returns before the selector when
+    manage_only is set. A pass that finds the lock held yields at once; the
+    next one is sixty seconds away. A crash pages the operator once, not once
+    a minute, and the page is cleared by the next clean pass."""
+    args.manage_only = True
+    cfg = cfgmod.load()
+    store = Store(cfg.db_path)
+    if not _acquire(store, wait_s=0.0):
+        print("manage skipped: the tick holds the lock", file=sys.stderr)
+        return 0
+    try:
+        rc = cmd_tick(args)
+        _alert_on_change(store, "manage_crash", False, "WARN", "", "", None)
+        return rc
+    except SystemExit:
+        raise
+    except Exception as e:
+        _alert_on_change(store, "manage_crash", True, "WARN", "management pass crashed",
+                         f"{type(e).__name__}: {e}", None)
+        try:
+            Journal(cfg.journal_dir).append("manage_crash", {
                 "error": f"{type(e).__name__}: {e}",
                 "traceback": traceback.format_exc()[-1500:]})
         except Exception:
@@ -913,7 +1041,7 @@ def cmd_status(args) -> int:
     print(f"structures: {len(structs)}")
     for s in structs:
         print(f"  [{s['status']:>8}] {s['kind']:<18} x{s['qty']} sleeve={s['sleeve']} "
-              f"credit={s['net_credit']:.2f} maxloss=${s['max_loss']:,.0f}")
+              f"credit={s['net_credit']:.2f} maxloss=${s['max_loss'] * s['qty']:,.0f}")
     for book in ("real",) + shadow.SHADOW_BOOKS:
         m = store.marks(book)
         if m:
@@ -937,11 +1065,14 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("tick")
     t.add_argument("--dry-run", action="store_true")
     t.add_argument("--mock", action="store_true", help="offline synthetic market")
+    mg = sub.add_parser("manage", help="one management pass: exits only, never an entry")
+    mg.add_argument("--dry-run", action="store_true")
+    mg.add_argument("--mock", action="store_true", help="offline synthetic market")
     sub.add_parser("status")
     sub.add_parser("verify-journal")
     sub.add_parser("alert-test", help="send one INFO alert through every configured channel")
     args = p.parse_args(argv)
-    return {"tick": cmd_tick_locked, "status": cmd_status,
+    return {"tick": cmd_tick_locked, "manage": cmd_manage_locked, "status": cmd_status,
             "verify-journal": cmd_verify_journal, "alert-test": cmd_alert_test}[args.cmd](args)
 
 

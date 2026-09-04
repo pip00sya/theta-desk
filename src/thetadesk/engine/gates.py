@@ -14,6 +14,7 @@ from statistics import median
 
 from ..config import Config, MacroEvent
 from .contracts import Leg, OptionContract, Structure
+from .ladder import Tier, fixed_tier
 from .liquidity import check_quote
 from .payoff import PayoffResult, portfolio_worst_case
 
@@ -147,11 +148,19 @@ def g8_portfolio_worst_case(book_legs: list[Leg], cand_legs: list[Leg],
                             spot: "float | dict[str, float]",
                             asof: datetime, horizon: datetime, iv_map: dict[str, float],
                             equity: float, cfg: Config,
-                            realized_gains: float) -> tuple[GateResult, PayoffResult]:
+                            realized_gains: float,
+                            base_frac: float | None = None,
+                            cap_frac: float | None = None) -> tuple[GateResult, PayoffResult]:
+    """base_frac / cap_frac come from the size ladder's rung (DEVLOG #36);
+    absent, the risk.* constants apply — the desk as it was."""
     r = cfg["risk"]
-    base = equity * r["portfolio_worst_case_frac"]
+    if base_frac is None:
+        base_frac = r["portfolio_worst_case_frac"]
+    if cap_frac is None:
+        cap_frac = r["portfolio_worst_case_cap"]
+    base = equity * base_frac
     earned = realized_gains * r["earned_budget_gain_mult"] if realized_gains > 0 else 0.0
-    budget = min(base + earned, equity * r["portfolio_worst_case_cap"])
+    budget = min(base + earned, equity * cap_frac)
     res = portfolio_worst_case(
         book_legs + cand_legs, spot, asof, horizon, iv_map,
         grid_low=r["price_grid_low"], grid_high=r["price_grid_high"],
@@ -238,10 +247,17 @@ def run_entry_gates(
     new_risk_today: float, cfg: Config,
     minutes_from_open: float | None, minutes_to_close: float | None, market_open: bool,
     open_sleeve_debit: float = 0.0,
+    tier: Tier | None = None,
 ) -> GateReport:
     """Full wall, ordered cheap -> expensive. Stops nothing early on purpose:
-    ALL gate results are computed and journaled so refusals are explainable."""
+    ALL gate results are computed and journaled so refusals are explainable.
+
+    `tier` is the size ladder's rung for this tick (DEVLOG #36): it supplies
+    the fractions gates #7, #8 and #9 measure against. Without one the
+    risk.* constants apply, which is the ladder's own disabled state."""
     r = cfg["risk"]
+    if tier is None:
+        tier = fixed_tier(r)
     results: list[GateResult] = []
     results.append(g2_universe(structure, cfg.underlyings))
     m = cfg["management"]
@@ -251,14 +267,14 @@ def run_entry_gates(
     results.extend(g5_g6_liquidity(structure, chain, cfg["liquidity"]["max_rel_spread"]))
     results.append(g19_feed_freshness(chain, spot, asof,
                                       cfg["liquidity"].get("max_quote_age_min", 10)))
-    results.append(g7_structure_size(structure, qty, equity, r["per_structure_max_loss_frac"]))
+    results.append(g7_structure_size(structure, qty, equity, tier.per_structure))
 
     cand_risk = 0.0
     try:
         cand_risk = structure.max_loss * qty / max(abs(l.qty) for l in structure.legs)
     except ValueError:
         pass
-    results.append(g9_daily_budget(new_risk_today, cand_risk, equity, r["daily_new_risk_frac"]))
+    results.append(g9_daily_budget(new_risk_today, cand_risk, equity, tier.daily_new))
     results.append(g10_time_window(minutes_from_open, minutes_to_close,
                                    cfg["timing"]["no_trade_first_min"],
                                    cfg["timing"]["no_trade_last_min"], market_open))
@@ -274,6 +290,7 @@ def run_entry_gates(
     cand_legs = [Leg(l.contract, l.qty * qty, l.entry_price) for l in structure.legs]
     g8, payoff = g8_portfolio_worst_case(book_legs, cand_legs, spot, asof,
                                          cfg.judging_horizon, iv_map, equity, cfg,
-                                         realized_gains)
+                                         realized_gains,
+                                         base_frac=tier.book_base, cap_frac=tier.book_cap)
     results.append(g8)
     return GateReport(results=results, payoff=payoff)

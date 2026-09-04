@@ -167,7 +167,11 @@ def test_entry_and_close_settle_on_broker_fills(desk):
     broker.fill(close["client_order_id"], cfills)
     assert m.cmd_tick_locked(Args()) == 0
     s = _struct(m, cfg, sid)
-    expected = round(sum(d["qty"] * (cfills[d["symbol"]] - prices[d["symbol"]]) * 100 for d in legs), 2)
+    # legs_json is per unit; the fill P&L is per unit times the lots held
+    # (DEVLOG #36: the size ladder opens this condor at two lots, not one)
+    expected = round(sum(d["qty"] * (cfills[d["symbol"]] - prices[d["symbol"]]) * 100
+                         for d in legs) * s["qty"], 2)
+    assert s["qty"] >= 2, "the ladder's first rung should size this condor above one lot"
     assert s["status"] == "closed" and s["closed_pnl"] == expected and expected > 0
     st = m.Store(cfg.db_path)
     assert st.realized_gains() == expected

@@ -452,11 +452,29 @@ function verdict(sg, prem) {
     'down: no new premium is sold and no convexity is bought.';
 }
 
+/* ---- the size ladder (DEVLOG #36): every ceiling is a rung, not a constant */
+function pctf(x) {
+  if (x == null || isNaN(x)) return '—';
+  var p = 100 * x; return (Math.abs(p - Math.round(p)) < 1e-9 ? p.toFixed(0) : p.toFixed(1)) + '%';
+}
+function ladderLine() {
+  var L = D.ladder || {};
+  if (!L.enabled) return 'percentages of equity, fixed in config and enforced in code';
+  /* block() escapes this label, so it is plain text on purpose */
+  var s = 'size ladder · rung ' + L.tier + ' · ' + n0(L.closed) + ' closed, ' +
+    sgn(L.realized) + ' realised';
+  if (L.demoted) s += ' · ' + L.demoted + ' rung' + (L.demoted > 1 ? 's' : '') +
+    ' taken back at ' + pctf(L.drawdown) + ' drawdown';
+  else if (L.next) s += ' · next: ' + E(L.next.name) + ' at ' + n0(L.next.min_closed) + ' closed';
+  else s += ' · top rung';
+  return s;
+}
+
 /* ---- workspace · desk --------------------------------------------------- */
 function paneDesk() {
   var sg = D.signals, prem = (sg.atm_iv - sg.rv20) * 100;
   var f = symFacts(curSym());
-  var rows = D.series.books.real || [], lim = D.limits;
+  var rows = D.series.books.real || [], lim = D.limits, L = D.ladder || {};
   var openRisk = (D.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
   var biggest = Math.max.apply(null, (D.positions.open || [])
     .map(function (p) { return p.max_loss || 0; }).concat([0]));
@@ -498,13 +516,15 @@ function paneDesk() {
     chartFrame() +
     (S.view === 'ivrv' || S.view === 'vrp' ? signalBlocks() :
     '<div class="grid2">' +
-      block('Two hard ceilings', 'percentages of equity, fixed in config and enforced in code', '',
+      block('Two hard ceilings', ladderLine(), '',
         ceil('Any single structure', biggest, lim.per_structure,
-          'The largest worst case in the book against the per-structure ceiling. A candidate that ' +
-          'would breach it never reaches the broker.') +
+          'The largest worst case in the book against the per-structure ceiling, ' +
+          pctf(L.fracs && L.fracs.per_structure) + ' of equity on the ' + (L.tier || 'fixed') +
+          ' rung. A candidate that would breach it never reaches the broker.') +
         ceil('The whole book', openRisk, lim.portfolio_cap,
-          'Every open leg repriced together over a ±20% grid at expiry. This is the number the ' +
-          'strategy was built around.')) +
+          'Every open leg repriced together over a ±20% grid at expiry, against ' +
+          pctf(L.fracs && L.fracs.book_cap) + ' of equity. Size is earned by closed trades and ' +
+          'taken back by drawdown; a model cannot move either number.')) +
       block('The desk right now', D.counts.structures_open + ' open · ' +
         D.counts.structures_closed + ' closed · ' + D.counts.structures_unfilled + ' never filled',
         '<span class="seg"><button data-tab="book">positions →</button></span>',
@@ -517,7 +537,10 @@ function paneDesk() {
         '<span>integrity</span><span>' + integ.filter(function (x) { return x.ok; }).length +
           ' of ' + integ.length + ' checks clean</span>' +
         '<span>last tick</span><span>' + E(hm(D.last_tick_utc)) + 'Z, ' +
-          E(ago(D.last_tick_utc)) + '</span></div>' +
+          E(ago(D.last_tick_utc)) + '</span>' +
+        (D.last_manage_utc ? '<span>last managed</span><span>' + E(hm(D.last_manage_utc)) +
+          'Z, ' + E(ago(D.last_manage_utc)) + ' · exits are checked every minute</span>' : '') +
+        '</div>' +
         '<p class="rnote" style="padding:0;margin-top:12px">Greeks are exposure in dollars: what ' +
         'the book earns or loses when one thing moves. Theta positive is the product — premium ' +
         'decaying in our favour.</p>') +
@@ -814,8 +837,10 @@ function drawRight() {
       au('whole book', openRisk, lim.portfolio_cap) +
       au('largest structure', biggest, lim.per_structure) +
       au('new risk in a day', dayMax, lim.daily_new) +
-      '</div><p class="rnote2">Each ceiling is a percentage of equity fixed in config.yaml and ' +
-      'evaluated in code before an order exists. Nothing here can raise one at runtime.</p></div>' +
+      '</div><p class="rnote2">Each ceiling is a percentage of equity set by the size ladder in ' +
+      'config.yaml — rung <b>' + E((D.ladder || {}).tier || 'fixed') + '</b>, earned by closed ' +
+      'trades, taken back by drawdown — and evaluated in code before an order exists. ' +
+      'No model can raise one.</p></div>' +
     '<div class="sec"><div class="rh"><span class="lab">Audit log</span>' +
       '<a data-tab="proof">' + n0(D.verification.journal_entries) + ' entries →</a></div>' +
       '<div class="chips" id="logchips"></div><div class="log" id="log"></div></div>';

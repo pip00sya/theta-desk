@@ -131,6 +131,14 @@ class Store:
             "SELECT COALESCE(SUM(closed_pnl),0) s FROM structures WHERE status='closed'").fetchone()
         return float(row["s"])
 
+    def closed_core_count(self) -> int:
+        """Resolved trades: core structures the broker has confirmed closed.
+        The hedge is insurance, not a trade, and nothing working or open has
+        a result yet — this is the count the size ladder is earned by."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) n FROM structures WHERE status='closed' AND sleeve='core'").fetchone()
+        return int(row["n"])
+
     # -- marks ------------------------------------------------------------
     def add_mark(self, book: str, equity: float | None, unrealized: float,
                  realized: float, theta: float = 0.0, delta: float = 0.0,

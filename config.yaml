@@ -73,6 +73,42 @@ risk:
   vol_shock_up_rel: 0.50                  # stressed scenario: IV +50% rel on down moves
   risk_free_rate: 0.04
 
+ladder:
+  # DEVLOG #36: size is EARNED. The risk.* fractions above are the floor and
+  # the rollback (enabled: false = the desk exactly as it traded to Sep 3).
+  # A rung is reached by CLOSED core trades with a non-negative realised
+  # result, and taken back by drawdown from the high-water mark before gate
+  # #14 halts new risk at 4%. Nothing here is read by a model; the tick
+  # journals the rung it used as `ladder` before it sizes.
+  #
+  # Why: 1.25% per structure pinned every entry at ONE contract ($10-wide
+  # condor = ~$830 of worst case; a second would need $1,660). Nine
+  # structures, nine times qty 1, 4.85% of equity ever at risk. +$598 on
+  # $3,165 of closed risk is +18.9% on the risk actually taken.
+  enabled: true
+  promote_requires_realized_nonneg: true
+  demote_one_tier_at_drawdown: 0.020
+  demote_to_floor_at_drawdown: 0.035
+  tiers:
+    - name: explore                        # day one, no record
+      min_closed: 0
+      per_structure_frac: 0.020            # gate #7
+      daily_new_risk_frac: 0.050           # gate #9
+      portfolio_worst_case_frac: 0.090     # gate #8 base
+      portfolio_worst_case_cap: 0.100      # gate #8 earned ceiling
+    - name: establish                      # five resolved trades, net >= 0
+      min_closed: 5
+      per_structure_frac: 0.030
+      daily_new_risk_frac: 0.080
+      portfolio_worst_case_frac: 0.135
+      portfolio_worst_case_cap: 0.150
+    - name: scale                          # fifteen resolved trades, net >= 0
+      min_closed: 15
+      per_structure_frac: 0.040
+      daily_new_risk_frac: 0.100
+      portfolio_worst_case_frac: 0.160
+      portfolio_worst_case_cap: 0.180
+
 liquidity:
   max_rel_spread: 0.08          # gate #6
   require_two_sided: true       # gate #5

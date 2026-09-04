@@ -51,13 +51,17 @@ any order, the ENTIRE book plus the candidate is repriced over a ±20%
 underlying-price grid at the judging horizon (deadline + 14 days = the Sep 18
 expiry, so every leg the desk trades is valued at intrinsic; the stressed-vol
 branch applies to legs that outlive the horizon); if the worst grid P&L
-breaches the budget (6% of equity, extendable to 8% only by realized gains —
-the agent earns the right to take risk), the order is never sent. This is a client-side implementation of the same worst-case principle
+breaches the budget — the size ladder's rung: 9% / 13.5% / 16% of equity,
+capped at 10 / 15 / 18%, extended inside the cap only by realized gains — the
+order is never sent. Size is earned twice: the rung by closed core trades
+with a non-negative record (0 / 5 / 15), and taken back by drawdown at 2%
+and 3.5%, before the 4% halt. This is a client-side implementation of the same worst-case principle
 as Alpaca's universal spread rule for options margin. Other gates: paper-only
 fail-closed, SPY/QQQ/IWM universe searched least-exposed name first so the
 book does not stack one bet at double size, every leg expires on/after Sep 18 (nothing
 expires during judging), defined-risk only, two-sided quotes, ≤8% relative
-spread, ≤1.25% equity per structure, ≤2.5% new risk/day, session-edge
+spread, 2 / 3 / 4% of equity per structure and 5 / 8 / 10% new risk per
+day by rung (1.25% and 3.5% are the floor when the ladder is off), session-edge
 windows, macro-event de-risk (NFP lands the morning of the deadline — the
 book enters that Friday light by rule), 35% profit target with a daily
 realization policy, 2× credit structure stop, +60% target on long premium,
@@ -107,7 +111,7 @@ hours before a deadline. The measurement is the result; the code is next.
 <!-- CLAIMS:BEGIN -->
 | # | Claim | Value | Regenerate with |
 |---|-------|-------|-----------------|
-| 01 | journal_entries | 1171 | `python tools/reconcile.py` |
+| 01 | journal_entries | 1174 | `python tools/reconcile.py` |
 | 02 | journal_chain | intact | `python tools/reconcile.py` |
 | 03 | ticks | 97 | `python tools/reconcile.py` |
 | 04 | gate_evaluations | 57 | `python tools/reconcile.py` |
@@ -126,7 +130,7 @@ hours before a deadline. The measurement is the result; the code is next.
 | 17 | desk_meetings_llm_dark | 8 | `python tools/reconcile.py` |
 | 18 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 | 19 | marks_quarantined | 8 | `python tools/reconcile.py` |
-| 20 | test_functions | 133 | `python tools/reconcile.py` |
+| 20 | test_functions | 146 | `python tools/reconcile.py` |
 <!-- CLAIMS:END -->
 
 *Paper trading simulation only. Hypothetical results, no real funds, not

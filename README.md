@@ -92,9 +92,14 @@ scheduler (mirrors the exchange session, survives sleep & battery)
   └─ shadows        ablation books + naive baseline
 ```
 
-Sizing is **earned**: risk budgets grow only from realized gains (worst-case
-6%→8% of equity, long-premium sleeve 1.5%→2.5%). The agent earns the right
-to take risk.
+Sizing is **earned**, twice over. The size ladder (`config.yaml: ladder`,
+`engine/ladder.py`) sets every ceiling from the desk's own record: 2% → 3% →
+4% of equity per structure at 0 / 5 / 15 closed core trades with a
+non-negative realised result, taken back at 2% and 3.5% drawdown before the
+4% halt. Inside a rung the worst-case budget grows only from realised gains
+(long-premium sleeve 1.5%→2.5%). The tick journals the rung as `ladder`
+before it sizes. A management pass runs every minute (`tools/manager.py`,
+`thetadesk.main manage`): reconcile, integrity, re-mark, exits — never an entry.
 
 ## Built with the whole Alpaca stack
 
