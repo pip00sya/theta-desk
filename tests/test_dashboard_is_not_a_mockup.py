@@ -84,8 +84,8 @@ def test_the_verdict_covers_every_regime(page: str) -> None:
 
 def test_every_workspace_reads_from_the_export(page: str) -> None:
     """Each pane function must touch D, the parsed export, somewhere."""
-    for pane in ("paneDesk", "paneSignal", "paneBooks", "panePositions",
-                 "paneRefusals", "paneGates", "paneProof"):
+    for pane in ("paneDesk", "panePositions", "paneRules", "paneProof",
+                 "chartFrame", "signalBlocks"):
         i = page.index("function " + pane + "(")
         body = page[i:i + 4000]
         assert re.search(r"\bD\.", body), f"{pane} never reads the export"

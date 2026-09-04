@@ -22,6 +22,8 @@
   <footer id="foot"></footer>
 </div>
 
+<div id="tip"></div>
+
 <div id="trace" role="dialog" aria-modal="true"><div class="sheet" id="trace-sheet"></div></div>
 
 <script>
@@ -79,6 +81,8 @@ function nearest(arr, t) {
   return out || arr[0] || null;
 }
 
+var CHARTS = {};
+
 /* ---- charts ------------------------------------------------------------- */
 /* Ordinal tick index rather than wall-clock: the series are sampled every
    fifteen minutes inside a session and not at all between them, so a time axis
@@ -99,7 +103,7 @@ function chart(series, o) {
   var X = function (i) { return P.l + (i / Math.max(1, n - 1)) * (W - P.l - P.r); };
   var Y = function (v) { return P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b); };
   var uid = 'g' + (chart.seq = (chart.seq || 0) + 1);
-  var out = ['<svg viewBox="0 0 ' + W + ' ' + H + '" role="img">'];
+  var out = ['<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" data-ch="' + uid + '">'];
   if (o.area) out.push('<defs><linearGradient id="' + uid + '" x1="0" y1="0" ' +
     'x2="0" y2="1"><stop offset="0" stop-color="' + o.area + '" stop-opacity=".26"/>' +
     '<stop offset="1" stop-color="' + o.area + '" stop-opacity="0"/></linearGradient></defs>');
@@ -170,7 +174,24 @@ function chart(series, o) {
         'font-weight="500">' + E(o.fmt(last)) + '</text>');
     }
   });
+  /* the layer the pointer drives: one rule, one dot per visible series */
+  out.push('<g class="xh" style="display:none">');
+  out.push('<line class="xhl" x1="0" x2="0" y1="' + P.t + '" y2="' + (H - P.b) +
+    '" stroke="rgba(255,255,255,.34)" stroke-width="1"/>');
+  series.forEach(function (s2, i2) {
+    if (s2.hidden) return;
+    out.push('<circle class="xhd" data-s="' + i2 + '" r="3.4" fill="' + s2.color +
+      '" stroke="#08080A" stroke-width="1.5" cx="-99" cy="-99"/>');
+  });
+  out.push('</g>');
   out.push('</svg>');
+
+  CHARTS[uid] = {
+    W: W, H: H, P: P, n: n, lo: lo, hi: hi, fmt: o.fmt, times: o.times || null,
+    series: series.map(function (s3) {
+      return { pts: s3.pts, color: s3.color, name: s3.name || '', hidden: !!s3.hidden };
+    })
+  };
   return out.join('');
 }
 function sessionMarks(rows) {
@@ -185,7 +206,7 @@ function sessionMarks(rows) {
 /* ---- state -------------------------------------------------------------- */
 var D = null;
 var S = { tab: 'desk', books: { real: 1, shadow_nogates: 1, shadow_nohedge: 1, baseline_naive: 1 },
-          pos: 'open', logf: 'all', gate: null, open: {}, sigv: 'ivrv', sym: null };
+          pos: 'open', logf: 'all', gate: null, open: {}, view: 'equity', sym: null };
 
 var BOOKS = [
   { k: 'real',           n: 'real',      c: '#F4F4F1', w: 2.1, tip: 1 },
@@ -195,12 +216,14 @@ var BOOKS = [
 ];
 var TABS = [
   ['desk', 'Desk', ''],
-  ['signal', 'Signal', ''],
-  ['books', 'Ablation', '4'],
-  ['positions', 'Positions', function () { return D.counts.structures_total; }],
-  ['refusals', 'Refusals', function () { return D.refusals.all; }],
-  ['gates', 'Rule wall', '12'],
+  ['book', 'Book', function () { return D.counts.structures_total; }],
+  ['rules', 'Rules', function () { return D.refusals.all; }],
   ['proof', 'Proof', function () { return D.verification.claims_total; }]
+];
+/* what the one chart frame on the desk is showing */
+var VIEWS = [
+  ['equity', 'Equity'], ['books', 'Four books'],
+  ['ivrv', 'Implied vs realized'], ['vrp', 'VRP score']
 ];
 
 /* ---- status ------------------------------------------------------------- */
@@ -253,18 +276,22 @@ function drawLeft() {
       '<span class="v">' + m(fin, 0) + '</span></div>';
   }).join('');
   var day = (D.series.daily || []).slice().reverse().map(function (x) {
-    return '<div class="ritem" data-tab="refusals"><span class="n">' + E(x.day.slice(5)) + '</span>' +
+    return '<div class="ritem" data-tab="rules"><span class="n">' + E(x.day.slice(5)) + '</span>' +
       '<span class="v">' + (x.entries || 0) + ' in · ' + (x.gate_rejections || 0) + ' out</span></div>';
   }).join('');
+  /* the rail is controls, not prose: what each group means is a title, so the
+     column stays a column instead of a page of explanation */
   document.getElementById('left').innerHTML =
-    '<div class="rgrp"><span class="lab">Universe · ' +
-      (D.params.universe.underlyings || []).length + '</span>' + uni +
-      '<p class="rnote">The signal is measured on the primary chain only. The others are entered ' +
-      'when the primary has nothing that clears the floor. Click one to inspect it.</p></div>' +
-    '<div class="rgrp"><span class="lab">Books · 4</span>' + books +
-      '<p class="rnote">Click to show or hide a curve on the ablation chart.</p></div>' +
-    '<div class="rgrp"><span class="lab">Sessions · ' + (D.series.daily || []).length + '</span>' +
-      day + '<p class="rnote">Entries opened against gate rejections, per session.</p></div>';
+    '<div class="rgrp" title="The signal is measured on the primary chain only. The others are ' +
+      'entered when the primary has nothing that clears the credit and liquidity floor. Click ' +
+      'one to inspect it."><span class="lab">Universe · ' +
+      (D.params.universe.underlyings || []).length + '</span>' + uni + '</div>' +
+    '<div class="rgrp" title="Three counterfactual books marked on the identical ticks. Click to ' +
+      'show or hide a curve on the ablation chart."><span class="lab">Books · 4</span>' +
+      books + '</div>' +
+    '<div class="rgrp" title="Entries opened against gate rejections, per session. Click a ' +
+      'session to open the rules workspace."><span class="lab">Sessions · ' +
+      (D.series.daily || []).length + '</span>' + day + '</div>';
 }
 
 /* What the desk knows about one underlying. The signal series exists only for
@@ -416,16 +443,8 @@ function paneDesk() {
         'credit and liquidity floor, and ' + (f.taken
           ? 'a candidate was built from its chain ' + f.taken + ' times.'
           : 'it has never produced one that cleared the floor.') + '</p>') +
-    block('Equity', 'the real book, marked every tick · ' + rows.length + ' marks · 5 sessions',
-      '<span class="seg"><button data-tab="books">compare four books →</button></span>',
-      '<div class="chart">' + chart([{ pts: rows.map(function (p) { return p.v; }),
-        color: '#F4F4F1', w: 2.2, tip: 1, fill: 1 }],
-        { h: 320, zero: 1, xs: 1, area: '#F2C14E', sessions: sessionMarks(rows),
-          fmt: function (x) { return money(x, 0); } }) + '</div>' +
-      '<div class="leg"><span>peak ' + money(Math.max.apply(null, rows.map(function (p) {
-        return p.v; })), 0) + '</span><span>trough ' + money(Math.min.apply(null,
-        rows.map(function (p) { return p.v; })), 0) + '</span>' +
-      '<span>realized ' + money(D.book.realized, 0) + ' of it is banked</span></div>', true) +
+    chartFrame() +
+    (S.view === 'ivrv' || S.view === 'vrp' ? signalBlocks() :
     '<div class="grid2">' +
       block('Two hard ceilings', 'percentages of equity, fixed in config and enforced in code', '',
         ceil('Any single structure', biggest, lim.per_structure,
@@ -436,7 +455,7 @@ function paneDesk() {
           'strategy was built around.')) +
       block('The desk right now', D.counts.structures_open + ' open · ' +
         D.counts.structures_closed + ' closed · ' + D.counts.structures_unfilled + ' never filled',
-        '<span class="seg"><button data-tab="positions">positions →</button></span>',
+        '<span class="seg"><button data-tab="book">positions →</button></span>',
         '<div class="kv2" style="font-size:11.5px;line-height:1.95">' +
         '<span>delta</span><span>' + m(D.greeks.delta) + ' per $1 of spot</span>' +
         '<span>theta</span><span>' + m(D.greeks.theta) + ' per day if nothing moves</span>' +
@@ -450,98 +469,89 @@ function paneDesk() {
         '<p class="rnote" style="padding:0;margin-top:12px">Greeks are exposure in dollars: what ' +
         'the book earns or loses when one thing moves. Theta positive is the product — premium ' +
         'decaying in our favour.</p>') +
-    '</div>';
+    '</div>');
 }
 
-/* ---- workspace · signal ------------------------------------------------- */
-function paneSignal() {
-  var sig = (D.series.signal || []).filter(function (p) { return p.iv && p.iv < 0.4; });
+/* One chart frame, four things to put in it. A console does not need a tab per
+   series; it needs one good chart and a way to change what is on it. */
+function chartFrame() {
+  var s = D.series, rows = s.books.real || [];
+  var sig = (s.signal || []).filter(function (q) { return q.iv && q.iv < 0.4; });
   var rich = D.params.regime.vrp_rich_threshold, cheap = D.params.regime.vrp_cheap_threshold;
-  var view = S.sigv, c, leg;
-  if (view === 'ivrv') {
-    c = chart([{ pts: sig.map(function (p) { return p.iv * 100; }), color: '#F2C14E', w: 2, tip: 1 },
-               { pts: sig.map(function (p) { return p.rv * 100; }), color: '#8A8A83', w: 1.7, tip: 1 }],
-      { h: 300, band: 1, xs: 1, sessions: sessionMarks(sig),
-        fmt: function (x) { return x.toFixed(1) + '%'; } });
-    leg = '<span><i style="background:#F2C14E"></i>implied</span>' +
-          '<span><i style="background:#8A8A83"></i>realized</span>' +
-          '<span><i style="background:rgba(242,193,78,.4)"></i>the premium we sell</span>';
-  } else if (view === 'spread') {
-    c = chart([{ pts: sig.map(function (p) { return (p.iv - p.rv) * 100; }), color: '#F2C14E',
-      w: 2, tip: 1 }], { h: 300, zero: 1, xs: 1, sessions: sessionMarks(sig),
-      fmt: function (x) { return x.toFixed(1); } });
-    leg = '<span>implied minus realized, in volatility points · above zero the premium is ours to sell</span>';
+  var body, sub, foot;
+  if (S.view === 'books') {
+    body = chart(BOOKS.map(function (b) {
+      return { pts: (s.books[b.k] || []).map(function (q) { return q.v; }), color: b.c, w: b.w,
+               tip: b.tip, fill: b.k === 'real', name: b.n, hidden: !S.books[b.k] };
+    }), { h: 330, zero: 1, xs: 1, area: '#F2C14E', sessions: sessionMarks(rows),
+          times: rows.map(function (q) { return q.t; }),
+          fmt: function (x) { return money(x, 0); } });
+    sub = 'the real book against three counterfactuals on the identical ticks';
+    foot = BOOKS.map(function (b) {
+      return '<button data-book="' + b.k + '" class="' + (S.books[b.k] ? '' : 'off') + '">' +
+        '<i style="background:' + b.c + '"></i>' + b.n + '</button>'; }).join('');
+  } else if (S.view === 'ivrv') {
+    body = chart([
+      { pts: sig.map(function (q) { return q.iv * 100; }), color: '#F2C14E', w: 2, tip: 1,
+        name: 'implied' },
+      { pts: sig.map(function (q) { return q.rv * 100; }), color: '#8A8A83', w: 1.7, tip: 1,
+        name: 'realized' }],
+      { h: 330, band: 1, xs: 1, sessions: sessionMarks(sig),
+        times: sig.map(function (q) { return q.t; }),
+        fmt: function (x) { return x.toFixed(2) + '%'; } });
+    sub = sig.length + ' readings · the shaded band is the premium being sold';
+    foot = '<span><i style="background:#F2C14E"></i>implied</span>' +
+      '<span><i style="background:#8A8A83"></i>realized</span>';
+  } else if (S.view === 'vrp') {
+    body = chart([{ pts: sig.map(function (q) { return q.vrp; }), color: '#F2C14E', w: 2, tip: 1,
+      name: 'vrp' }], { h: 330, xs: 1, sessions: sessionMarks(sig),
+      times: sig.map(function (q) { return q.t; }),
+      guides: [{ v: rich, t: 'rich ' + rich }, { v: cheap, t: 'cheap ' + cheap }],
+      fmt: function (x) { return x.toFixed(2); } });
+    sub = '0 to 1 · sell defined-risk premium above rich, buy convexity below cheap';
+    foot = '<span>above ' + rich + ' the desk sells · below ' + cheap + ' it buys · between, it stands down</span>';
   } else {
-    c = chart([{ pts: sig.map(function (p) { return p.vrp; }), color: '#F2C14E', w: 2, tip: 1 }],
-      { h: 300, xs: 1, sessions: sessionMarks(sig),
-        guides: [{ v: rich, t: 'rich ' + rich }, { v: cheap, t: 'cheap ' + cheap }],
-        fmt: function (x) { return x.toFixed(2); } });
-    leg = '<span>0 to 1 · sell defined-risk premium above rich, buy convexity below cheap</span>';
+    body = chart([{ pts: rows.map(function (q) { return q.v; }), color: '#F4F4F1', w: 2.2,
+      tip: 1, fill: 1, name: 'real' }],
+      { h: 330, zero: 1, xs: 1, area: '#F2C14E', sessions: sessionMarks(rows),
+        times: rows.map(function (q) { return q.t; }),
+        fmt: function (x) { return money(x, 0); } });
+    sub = rows.length + ' marks · 5 sessions · realized plus unrealized';
+    foot = '<span>peak ' + money(Math.max.apply(null, rows.map(function (q) { return q.v; })), 0) +
+      '</span><span>trough ' + money(Math.min.apply(null, rows.map(function (q) {
+        return q.v; })), 0) + '</span><span>' + money(D.book.realized, 0) + ' of it is banked</span>';
   }
-  var views = [['ivrv', 'implied vs realized'], ['spread', 'the spread'], ['vrp', 'vrp score']];
-  var q = (D.series.quarantine || [])[0] || {};
-  return     block('Volatility', sig.length + ' readings · 5 sessions · primary chain only',
-      '<span class="seg">' + views.map(function (v) {
-        return '<button data-sig="' + v[0] + '" aria-selected="' + (view === v[0]) + '">' +
-          v[1] + '</button>'; }).join('') + '</span>',
-      '<div class="chart">' + c + '</div><div class="leg">' + leg + '</div>', true) +
-    '<div class="grid2">' +
-      block('What the number means', 'the whole strategy in four lines', '',
-        '<div class="kv2" style="line-height:1.95">' +
-        '<span>implied volatility</span><span>what the option market charges for movement</span>' +
-        '<span>realized volatility</span><span>how much the index actually moved, 20 sessions</span>' +
-        '<span>the premium</span><span>the gap between them — the only thing this desk trades</span>' +
-        '<span>direction</span><span>never an input, at any point in the pipeline</span></div>') +
-      block('Data quality', 'the desk marks its own bad data', '',
-        '<div class="kv2" style="line-height:1.95">' +
-        '<span>readings kept</span><span>' + sig.length + '</span>' +
-        '<span>marks quarantined</span><span class="am">' + D.marks_quarantined + '</span>' +
-        '<span>cause</span><span>' + E(q.reason || '—') + '</span>' +
-        '<span>integrity checks</span><span>' + (D.series.integrity || []).filter(function (x) {
-          return x.ok; }).length + ' clean of ' + (D.series.integrity || []).length + '</span></div>' +
-        '<p class="rnote" style="padding:0;margin-top:12px">After a close the feed reported the ' +
-        'index at half its price. The desk flagged those marks itself and refused to trade on ' +
-        'them; they stay in the store and out of every chart.</p>') +
+  return block('Chart', sub, '<span class="seg">' + VIEWS.map(function (v) {
+      return '<button data-view="' + v[0] + '" aria-selected="' + (S.view === v[0]) + '">' +
+        v[1] + '</button>'; }).join('') + '</span>',
+    '<div class="chart">' + body + '</div><div class="leg">' + foot + '</div>', true);
+}
+
+/* the two explanations belong with the volatility views, not on a tab of their own */
+function signalBlocks() {
+  var sig = (D.series.signal || []).filter(function (q) { return q.iv && q.iv < 0.4; });
+  var q0 = (D.series.quarantine || [])[0] || {};
+  return '<div class="grid2">' +
+    block('What the number means', 'the whole strategy in four lines', '',
+      '<div class="kv2" style="line-height:1.95">' +
+      '<span>implied volatility</span><span>what the option market charges for movement</span>' +
+      '<span>realized volatility</span><span>how much the index actually moved, 20 sessions</span>' +
+      '<span>the premium</span><span>the gap between them — the only thing this desk trades</span>' +
+      '<span>direction</span><span>never an input, at any point in the pipeline</span></div>') +
+    block('Data quality', 'the desk marks its own bad data', '',
+      '<div class="kv2" style="line-height:1.95">' +
+      '<span>readings kept</span><span>' + sig.length + '</span>' +
+      '<span>marks quarantined</span><span class="am">' + D.marks_quarantined + '</span>' +
+      '<span>cause</span><span>' + E(q0.reason || '—') + '</span>' +
+      '<span>integrity checks</span><span>' + (D.series.integrity || []).filter(function (x) {
+        return x.ok; }).length + ' clean of ' + (D.series.integrity || []).length + '</span></div>' +
+      '<p class="rnote" style="padding:0;margin-top:12px">After a close the feed reported the ' +
+      'index at half its price. The desk flagged those marks itself and refused to trade on ' +
+      'them; they stay in the store and out of every chart.</p>') +
     '</div>';
 }
 
-/* ---- workspace · ablation ----------------------------------------------- */
-function paneBooks() {
-  var s = D.series;
-  var series = BOOKS.map(function (b) {
-    return { pts: (s.books[b.k] || []).map(function (p) { return p.v; }), color: b.c, w: b.w,
-             tip: b.tip, fill: b.k === 'real', hidden: !S.books[b.k] };
-  });
-  var lastOf = function (k) { var a = s.books[k] || []; return a.length ? a[a.length - 1].v : null; };
-  var rows = BOOKS.map(function (b) {
-    var fin = lastOf(b.k), dl = b.k === 'real' ? null : lastOf('real') - fin;
-    var arr = s.books[b.k] || [], peak = -1e9, dd = 0;
-    arr.forEach(function (p) { peak = Math.max(peak, p.v); dd = Math.min(dd, p.v - peak); });
-    return '<tr><td><span style="color:' + b.c + '">■</span> ' + E(b.n) + '</td>' +
-      '<td class="num">' + m(fin) + '</td>' +
-      '<td class="num">' + (dl == null ? '<span class="f">the book we ran</span>' : m(dl)) + '</td>' +
-      '<td class="num">' + m(dd, 0) + '</td><td class="num d">' + arr.length + '</td></tr>';
-  }).join('');
-  return     block('Four books, one set of ticks', 'counterfactual, not a backtest',
-      '<span class="seg">' + BOOKS.map(function (b) {
-        return '<button data-book="' + b.k + '" aria-selected="' + !!S.books[b.k] + '">' +
-          b.n + '</button>'; }).join('') + '</span>',
-      '<div class="chart">' + chart(series, { h: 340, zero: 1, xs: 1, area: '#F2C14E',
-        sessions: sessionMarks(s.books.real || []),
-        fmt: function (x) { return money(x, 0); } }) + '</div>' +
-      '<div class="leg">' + BOOKS.map(function (b) {
-        return '<button data-book="' + b.k + '" class="' + (S.books[b.k] ? '' : 'off') + '">' +
-          '<i style="background:' + b.c + '"></i>' + b.n + '</button>'; }).join('') + '</div>', true) +
-    block('Where each book ended', 'the gap is what the rule was worth on the paths we took', '',
-      '<table><thead><tr><th>Book</th><th class="num">Profit and loss</th>' +
-      '<th class="num">We gained against it</th><th class="num">Worst drawdown</th>' +
-      '<th class="num">Marks</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<p class="rnote" style="padding:14px 14px 4px">This is an <b style="color:var(--white);' +
-      'font-weight:400">upper bound, not an edge</b>. The shadow books share our entries and ' +
-      'never take profit, so the no-gates book realizes $0.00 against our ' +
-      money(D.book.realized) + '. It measures what the gates prevented on the paths we actually ' +
-      'took, and nothing more.</p>', true);
-}
+
 
 /* ---- workspace · positions ---------------------------------------------- */
 function panePositions() {
@@ -603,7 +613,7 @@ function panePositions() {
 }
 
 /* ---- workspace · refusals ----------------------------------------------- */
-function paneRefusals() {
+function paneRules() {
   var KIND = { entry_refused: 'a rule refused it', derisk_mode: 'event window',
     no_candidate: 'nothing worth trading', entry_skipped_duplicate: 'already held',
     market_closed: 'market closed', desk_veto: 'desk vetoed', data_suspect: 'data suspect' };
@@ -634,7 +644,28 @@ function paneRefusals() {
         (r.vrp != null ? '<span>vrp at the time</span><span>' + r.vrp + '</span>' : '') +
         '</div></div></td></tr>';
     }).join('');
-  return     '<div class="grid2 narrow">' +
+  var bgg = D.refusals.by_gate || {}, evals = (D.series.gates || []).length, reached = {};
+  (D.series.gates || []).forEach(function (row) {
+    Object.keys(row.r || {}).forEach(function (g2) { reached[g2] = (reached[g2] || 0) + 1; });
+  });
+  var cards = (D.gate_defs || []).map(function (g2) {
+    var stops = bgg[g2.id] || 0, on = S.open['g' + g2.id];
+    return '<div class="gc' + (on ? ' on' : '') + '" data-open="g' + g2.id + '">' +
+      '<div class="h"><span class="n">' + E(g2.label) + '</span>' +
+      '<span class="vp ' + (stops ? 'stop' : 'pass') + '">' +
+        (stops ? 'stopped ' + stops : 'never bound') + '</span></div>' +
+      '<div class="d">' + E(g2.what) + '</div>' +
+      '<div class="m">' + E(g2.id) + ' · reached on ' + (reached[g2.id] || 0) + ' of ' + evals +
+      '</div>' + (on ? '<div class="more">governed by <b>' +
+        E((g2.params || []).join(', ') || 'no parameter') + '</b><br>' +
+        (stops ? 'it refused ' + stops + ' candidates — they are in the stream below'
+               : 'it has never been the binding constraint on this account') + '</div>' : '') +
+      '</div>';
+  }).join('');
+  return block('The rule wall', evals + ' evaluations · 12 gates · plain Python, before any order',
+      '<span class="lab">click a gate for its parameters</span>',
+      '<div class="gcards">' + cards + '</div>') +
+    '<div class="grid2 narrow">' +
       block('Gate ledger', 'click a rule to filter the stream',
         S.gate ? '<span class="seg"><button data-gate="">clear</button></span>' : '',
         '<span class="lab" style="display:block;margin-bottom:9px">why a trade did not happen</span>' +
@@ -653,31 +684,6 @@ function paneRefusals() {
     '</div>';
 }
 
-/* ---- workspace · rule wall ---------------------------------------------- */
-function paneGates() {
-  var bg = D.refusals.by_gate || {}, evals = (D.series.gates || []).length, reached = {};
-  (D.series.gates || []).forEach(function (row) {
-    Object.keys(row.r || {}).forEach(function (g) { reached[g] = (reached[g] || 0) + 1; });
-  });
-  var cards = (D.gate_defs || []).map(function (g) {
-    var stops = bg[g.id] || 0, on = S.open['g' + g.id];
-    return '<div class="gc' + (on ? ' on' : '') + '" data-open="g' + g.id + '">' +
-      '<div class="h"><span class="n">' + E(g.label) + '</span>' +
-      '<span class="vp ' + (stops ? 'stop' : 'pass') + '">' +
-        (stops ? 'stopped ' + stops : 'never bound') + '</span></div>' +
-      '<div class="d">' + E(g.what) + '</div>' +
-      '<div class="m">' + E(g.id) + ' · reached on ' + (reached[g.id] || 0) + ' of ' + evals + '</div>' +
-      (on ? '<div class="more">governed by <b>' + E((g.params || []).join(', ') || 'no parameter') +
-        '</b><br>' + (stops ? 'it refused ' + stops + ' candidates — open the rejection stream'
-        : 'it has never been the binding constraint on this account') + '</div>' : '') + '</div>';
-  }).join('');
-  return     block('The rule wall', evals + ' candidate evaluations · 12 gates · each one journalled',
-      '<span class="seg"><button data-tab="refusals">rejection stream →</button></span>',
-      '<div class="gcards">' + cards + '</div>' +
-      '<p class="rnote" style="padding:15px 0 0">These run in plain Python before any order ' +
-      'exists. The language model never sees a gate’s input and cannot argue with its ' +
-      'output: it proposes, the wall disposes.</p>');
-}
 
 /* ---- workspace · proof -------------------------------------------------- */
 function paneProof() {
@@ -742,7 +748,7 @@ function drawRight() {
     return Math.max(a, x.new_risk || 0); }, 0);
   document.getElementById('right').innerHTML =
     '<div class="sec"><div class="rh"><span class="lab">Exposure</span>' +
-      '<a data-tab="positions">the book →</a></div><div class="kv">' +
+      '<a data-tab="book">the book →</a></div><div class="kv">' +
       kvr('delta', m(g.delta) + ' <em>/ $1 spot</em>') +
       kvr('theta', m(g.theta) + ' <em>/ day</em>') +
       kvr('vega', m(g.vega) + ' <em>/ vol pt</em>') +
@@ -752,7 +758,7 @@ function drawRight() {
       '<p class="rnote2">Exposure in dollars: what the book earns or loses when one thing moves. ' +
       'Theta positive is the product.</p></div>' +
     '<div class="sec"><div class="rh"><span class="lab">Risk authority</span>' +
-      '<a data-tab="gates">rule wall →</a></div><div class="auth">' +
+      '<a data-tab="rules">rule wall →</a></div><div class="auth">' +
       au('whole book', openRisk, lim.portfolio_cap) +
       au('largest structure', biggest, lim.per_structure) +
       au('new risk in a day', dayMax, lim.daily_new) +
@@ -886,6 +892,62 @@ function drawFoot() {
     '<span>' + E(String(D.generated_utc).slice(0, 16).replace('T', ' ')) + 'Z</span>';
 }
 
+/* ---- pointer readout -----------------------------------------------------
+   Hovering a chart is how anyone actually reads one: which tick is this, and
+   what was every series worth there. The rule and the dots are already in the
+   SVG; this only moves them and fills the box. */
+function chartMove(ev) {
+  var svg = ev.target.closest ? ev.target.closest('svg[data-ch]') : null;
+  if (!svg) return chartLeave();
+  var c = CHARTS[svg.dataset.ch];
+  if (!c) return;
+  var r = svg.getBoundingClientRect();
+  var vx = (ev.clientX - r.left) / r.width * c.W;
+  var span = c.W - c.P.l - c.P.r;
+  var i = Math.round((vx - c.P.l) / span * (c.n - 1));
+  if (i < 0) i = 0;
+  if (i > c.n - 1) i = c.n - 1;
+  var X = c.P.l + (i / Math.max(1, c.n - 1)) * span;
+  var Y = function (v) { return c.P.t + (1 - (v - c.lo) / (c.hi - c.lo)) * (c.H - c.P.t - c.P.b); };
+
+  var g = svg.querySelector('.xh');
+  g.style.display = '';
+  g.querySelector('.xhl').setAttribute('x1', X);
+  g.querySelector('.xhl').setAttribute('x2', X);
+  var dots = g.querySelectorAll('.xhd'), k = 0, rows = [];
+  c.series.forEach(function (sr, si) {
+    if (sr.hidden) return;
+    var v = sr.pts[i], d = dots[k++];
+    if (d) {
+      if (v == null) { d.setAttribute('cx', -99); d.setAttribute('cy', -99); }
+      else { d.setAttribute('cx', X.toFixed(1)); d.setAttribute('cy', Y(v).toFixed(1)); }
+    }
+    rows.push('<span><i style="background:' + sr.color + '"></i>' +
+      (sr.name ? E(sr.name) + ' ' : '') + '<b>' + (v == null ? '—' : E(c.fmt(v))) + '</b></span>');
+  });
+
+  var tip = document.getElementById('tip');
+  tip.innerHTML = '<span class="t">' + (c.times && c.times[i]
+    ? E(dm(c.times[i])) + ' ' + E(hm(c.times[i])) + 'Z · tick ' + (i + 1) + ' of ' + c.n
+    : 'tick ' + (i + 1) + ' of ' + c.n) + '</span>' + rows.join('');
+  tip.style.display = 'block';
+  var box = tip.getBoundingClientRect();
+  var px = r.left + (X / c.W) * r.width + 14;
+  if (px + box.width > innerWidth - 10) px = r.left + (X / c.W) * r.width - box.width - 14;
+  tip.style.left = Math.max(8, px) + 'px';
+  tip.style.top = Math.max(8, Math.min(innerHeight - box.height - 8, ev.clientY - box.height / 2)) + 'px';
+}
+function chartLeave() {
+  document.getElementById('tip').style.display = 'none';
+  Array.prototype.forEach.call(document.querySelectorAll('svg[data-ch] .xh'), function (g) {
+    g.style.display = 'none';
+  });
+}
+document.addEventListener('mousemove', function (e) {
+  if (e.target.closest && e.target.closest('svg[data-ch]')) chartMove(e);
+  else chartLeave();
+});
+
 /* ---- wiring ------------------------------------------------------------- */
 /* the workspace is addressable: a link to #refusals opens on that workspace,
    which is how anyone shares what they are looking at */
@@ -895,8 +957,7 @@ function setTab(id) {
   try { history.replaceState(null, '', '#' + id); } catch (e) { location.hash = id; }
   drawTabs(); drawPane();
 }
-var PANES = { desk: paneDesk, signal: paneSignal, books: paneBooks, positions: panePositions,
-              refusals: paneRefusals, gates: paneGates, proof: paneProof };
+var PANES = { desk: paneDesk, book: panePositions, rules: paneRules, proof: paneProof };
 function drawPane() {
   document.getElementById('pane').innerHTML = (PANES[S.tab] || paneDesk)();
   document.getElementById('pane').scrollTop = 0;
@@ -915,8 +976,8 @@ document.addEventListener('click', function (e) {
   if (b) { S.books[b.dataset.book] = !S.books[b.dataset.book]; drawLeft(); drawPane(); return; }
   var p = e.target.closest('[data-pos]');
   if (p) { S.pos = p.dataset.pos; drawPane(); return; }
-  var sv = e.target.closest('[data-sig]');
-  if (sv) { S.sigv = sv.dataset.sig; drawPane(); return; }
+  var vw = e.target.closest('[data-view]');
+  if (vw) { S.view = vw.dataset.view; setTab('desk'); return; }
   var g = e.target.closest('[data-gate]');
   if (g) { S.gate = g.dataset.gate || null; drawPane(); return; }
   var o = e.target.closest('[data-open]');
@@ -929,7 +990,7 @@ document.addEventListener('click', function (e) {
 });
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') { closeTrace(); return; }
-  var i = ['1', '2', '3', '4', '5', '6', '7'].indexOf(e.key);
+  var i = ['1', '2', '3', '4'].indexOf(e.key);
   if (i >= 0 && TABS[i]) setTab(TABS[i][0]);
 });
 
