@@ -248,9 +248,9 @@ function drawStatus() {
     '<span class="grp"><span class="dot' + (closed ? ' off' : '') + '"></span><b>' +
       (closed ? 'CLOSED' : 'OPEN') + '</b> ' + E(dm(D.last_tick_utc)) + ' session · as of ' +
       E(hm(D.last_tick_utc)) + 'Z</span>' +
-    '<span class="grp"><span class="k">cycle</span><b>' + n0(c.ticks) + '</b> ticks <b>' +
+    '<span class="grp drop1"><span class="k">cycle</span><b>' + n0(c.ticks) + '</b> ticks <b>' +
       (D.series.gates || []).length + '</b> evaluated <b>' + n0(c.orders_live) + '</b> orders</span>' +
-    '<span class="grp"><span class="k">session</span><b>' + c.structures_total +
+    '<span class="grp drop2"><span class="k">session</span><b>' + c.structures_total +
       '</b> structures <b>' + n0(D.refusals.all) + '</b> refused <b>' + D.desk.meetings +
       '</b> meetings</span>' +
     '<span class="grp" id="pulse" title="A read-only poll of the exchange clock, ' +
@@ -970,18 +970,25 @@ function pulseClock() {
   var a = PULSE.account || {};
   v.textContent = a.equity != null ? usd(a.equity) : '—';
 
-  var m = PULSE.market || {}, tail = '';
+  var m = PULSE.market || {}, lt = PULSE.last_trade || {}, state = '';
   if (m.is_open === true) {
-    tail = ' · market open';
-    if (m.next_close) tail += ' · closes in ' + until(m.next_close);
+    state = ' · market open' + (m.next_close ? ' · closes in ' + until(m.next_close) : '');
   } else if (m.is_open === false) {
-    tail = ' · market closed';
-    if (m.next_open) tail += ' · opens in ' + until(m.next_open);
+    state = ' · market closed' + (m.next_open ? ' · opens in ' + until(m.next_open) : '');
   }
-  var lt = PULSE.last_trade || {};
-  if (lt.price) tail += ' · last print ' + usd(lt.price) + ' at ' + hm(lt.at) + 'Z';
-  tail += ' · poll ' + PULSE.seq + ' · ' + Math.round(age) + 's ago';
-  mk.textContent = tail;
+  var ago = ' · ' + Math.round(age) + 's ago';
+  var print = lt.price ? ' · last print ' + usd(lt.price) + ' at ' + hm(lt.at) + 'Z' : '';
+  var seqs = ' · poll ' + PULSE.seq;
+  /* Measure rather than guess: write the fullest tail, and drop one fact at a
+     time until the bar stops overflowing. Guessing by viewport width was wrong
+     at every width I did not test. */
+  var levels = [state + print + seqs + ago, state + seqs + ago, state + ago,
+                ' · market ' + (m.is_open ? 'open' : 'closed') + ago, ago];
+  var bar = document.getElementById('status');
+  for (var li = 0; li < levels.length; li++) {
+    mk.textContent = levels[li];
+    if (bar.scrollWidth <= bar.clientWidth + 1) break;
+  }
 
   /* the account cell shows the freshest reading there is, and says which */
   var eq = document.getElementById('kpi-eq');

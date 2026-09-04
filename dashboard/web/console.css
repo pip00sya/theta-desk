@@ -70,16 +70,18 @@ button{font:inherit}
   background:var(--black);font-family:var(--mono);font-size:10.5px;color:var(--dim);
   padding:0 14px;overflow:hidden;white-space:nowrap}
 #status .grp{display:flex;align-items:center;gap:7px;padding:0 16px;
-  border-right:1px solid var(--rule);height:100%}
+  border-right:1px solid var(--rule);height:100%;flex:0 0 auto}
 #status .grp:first-child{padding-left:0}
-#status .grp.last{border-right:0;margin-left:auto;padding-right:0}
+#status .grp.last{border-right:0;margin-left:auto;padding-right:0;
+  min-width:0;flex:0 1 auto;justify-content:flex-end}
 #status b{color:var(--white);font-weight:500}
 #status .k{color:var(--faint);letter-spacing:.13em;text-transform:uppercase;font-size:9.5px}
 .dot{width:5px;height:5px;border-radius:50%;background:var(--up);flex:0 0 5px}
 .dot.off{background:var(--ghost)}
 #status .act{display:flex;align-items:center;gap:8px;border:1px solid var(--rule2);
   border-radius:999px;padding:3.5px 13px;color:var(--white);
-  max-width:640px;overflow:hidden;text-overflow:ellipsis}
+  min-width:0;flex:0 1 auto;max-width:min(34vw,560px);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 #status .rbtn{appearance:none;background:none;border:1px solid var(--rule2);cursor:pointer;
   color:var(--dim);font-family:var(--mono);font-size:9px;letter-spacing:.12em;
@@ -91,8 +93,15 @@ button{font:inherit}
   animation:beat 2s ease-in-out infinite}
 .pdot.off{background:var(--ghost);animation:none}
 @keyframes beat{0%,100%{opacity:1}50%{opacity:.25}}
-#pulse{max-width:none}
-#pmkt{color:var(--faint)}
+/* the bar gives way in a fixed order rather than crushing whichever zone
+   happens to be longest: the session tally goes first, then the cycle tally,
+   and the pulse shortens its own tail in script before any of that. */
+/* the pulse writes its own tail to fit, so it does not need to be squeezed;
+   the order pill on the right is prose and absorbs the shortfall instead */
+#pulse{flex:0 0 auto}
+#pmkt{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+@media (max-width:1440px){#status .grp.drop2{display:none}}
+@media (max-width:1220px){#status .grp.drop1{display:none}}
 #status .age.stale{color:var(--amber)}
 
 /* ---- three columns ------------------------------------------------------ */
