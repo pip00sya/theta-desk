@@ -13,6 +13,7 @@
 
 <div id="shell">
   <header id="status"></header>
+  <section id="kpi"></section>
   <div id="body">
     <aside id="left"></aside>
     <main id="mid"><nav id="tabs"></nav><div id="pane"><div class="empty" id="boot">Loading data.json…</div></div></main>
@@ -58,6 +59,10 @@ function sgn(v) { return v == null || v === 0 ? '' : v > 0 ? 'up' : 'down'; }
 /* the one place colour carries meaning: the sign of money */
 function m(v, d) { return '<span class="' + sgn(v) + '">' + money(v, d) + '</span>'; }
 function pct(v, d) { return v == null ? '—' : (v * 100).toFixed(d == null ? 2 : d); }
+function sg2(v, d) {
+  if (v == null || isNaN(v)) return '—';
+  return (v < 0 ? '−' : '+') + Math.abs(v).toFixed(d == null ? 2 : d);
+}
 function n0(v) { return v == null ? '—' : Number(v).toLocaleString('en-US'); }
 function hm(t) { return t ? String(t).slice(11, 16) : '—'; }
 function dm(t) { return t ? String(t).slice(5, 10) : '—'; }
@@ -236,7 +241,7 @@ function drawLeft() {
     var f = symFacts(sym), on = sym === curSym();
     return '<div class="ritem' + (on ? ' on' : '') + '" data-sym="' + E(sym) + '">' +
       '<span class="n">' + E(sym) + '</span><span class="v">' +
-      (f.primary ? '+' + (D.signals.atm_iv * 100 - D.signals.rv20 * 100).toFixed(2)
+      (f.primary ? sg2(D.signals.atm_iv * 100 - D.signals.rv20 * 100)
          : (f.open + f.closed) ? (f.open + f.closed) + ' held' : f.tried + ' tried') + '</span>' +
       '<span class="t">' + (f.primary ? 'vol ' + E(D.signals.regime)
         : f.taken ? 'rotated in ' + f.taken + 'x' : 'never taken') + '</span></div>';
@@ -294,16 +299,20 @@ function drawTabs() {
       (n ? '<span class="n">' + n + '</span>' : '') + '</button>';
   }).join('');
 }
-function kc(l, v, s) {
-  return '<div class="kc"><span class="lab">' + E(l) + '</span><div class="v">' + v +
-    '</div><div class="s">' + s + '</div></div>';
+function kc(l, v, s, cls) {
+  return '<div class="kc"><span class="lab">' + E(l) + '</span>' +
+    '<div class="v' + (cls ? ' ' + cls : '') + '">' + v + '</div>' +
+    '<div class="s">' + s + '</div></div>';
 }
-function kstrip() {
+function drawKpi() {
   var b = D.broker || {}, bk = D.book, c = D.counts;
   var openRisk = (D.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
   var wins = (D.trades || []).filter(function (t) { return t.pnl > 0; }).length;
-  return '<div class="kstrip">' +
-    kc('Equity', usd(b.equity, 0), 'broker, read ' + hm(b.asof_utc) + 'Z') +
+  var v = D.verification, integ = D.series.integrity || [];
+  var bound = Object.keys(D.refusals.by_gate || {}).length;
+  document.getElementById('kpi').innerHTML =
+    kc('Equity', usd(b.equity, 0), 'Alpaca paper ' + E(D.account) + ' · read ' +
+       hm(b.asof_utc) + 'Z') +
     kc('Profit and loss', m(bk.pnl, 0), 'from $100,000 · <span class="' + sgn(bk.pnl) + '">' +
        (bk.pnl_pct >= 0 ? '+' : '−') + Math.abs(bk.pnl_pct).toFixed(2) + '%</span> · marked ' +
        hm(bk.marked_at) + 'Z') +
@@ -313,8 +322,11 @@ function kstrip() {
     kc('Risk deployed', usd(openRisk, 0), 'worst case fixed at entry · ' +
        (100 * openRisk / D.limits.portfolio_cap).toFixed(0) + '% of the ceiling') +
     kc('Refused', n0(D.refusals.all), Object.keys(D.refusals.by_kind).length + ' kinds · ' +
-       Object.keys(D.refusals.by_gate || {}).length + ' distinct gates') +
-    '</div>';
+       bound + ' of 12 gates have ever bound') +
+    kc('Live', hm(D.last_tick_utc) + 'Z', n0(c.ticks) + ' ticks · ' + n0(c.orders_live) +
+       ' live orders · ' + integ.filter(function (x) { return x.ok; }).length + ' of ' +
+       integ.length + ' integrity checks clean',
+       v.chain_ok ? '' : 'down');
 }
 function b4(l, v, c, cls) {
   return '<div><span class="lab">' + E(l) + '</span><div class="v ' + (cls || '') + '">' + v +
@@ -341,6 +353,26 @@ function bar(l, v, max, gate) {
     '<span class="v">' + v + '</span></div>';
 }
 
+/* The verdict is written from the regime, not for the regime the desk happened
+   to be in when the page was built. Fed a cheap tape it says the desk is buying
+   convexity, because that is what the strategy does. */
+function verdict(sg, prem) {
+  var r = String(sg.regime || '');
+  if (r === 'rich') {
+    return 'Implied volatility exceeds realized by <b>' + sg2(prem) + ' points</b>. The market ' +
+      'is charging for movement that is not showing up, so the desk sells defined-risk premium ' +
+      'and hedges the tail. It takes no view on direction, ever.';
+  }
+  if (r === 'cheap') {
+    return 'Implied volatility sits <b>' + sg2(prem) + ' points</b> under realized. Movement is ' +
+      'being underpriced, so the desk stops selling premium and buys convexity with defined ' +
+      'risk instead. It takes no view on direction, ever.';
+  }
+  return 'Implied and realized volatility are within <b>' + sg2(prem) + ' points</b> of each ' +
+    'other, inside the band where neither side of the trade is being overpaid. The desk stands ' +
+    'down: no new premium is sold and no convexity is bought.';
+}
+
 /* ---- workspace · desk --------------------------------------------------- */
 function paneDesk() {
   var sg = D.signals, prem = (sg.atm_iv - sg.rv20) * 100;
@@ -350,8 +382,7 @@ function paneDesk() {
   var biggest = Math.max.apply(null, (D.positions.open || [])
     .map(function (p) { return p.max_loss || 0; }).concat([0]));
   var integ = D.series.integrity || [];
-  return kstrip() +
-    '<div class="hero"><span class="sym">' + E(f.sym) + '</span>' +
+  return     '<div class="hero"><span class="sym">' + E(f.sym) + '</span>' +
       '<span class="px">' + (f.spot ? Number(f.spot).toFixed(2) : '—') + '</span>' +
       (f.primary
         ? '<span class="chip hot">vol ' + E(sg.regime) + '</span>' +
@@ -364,13 +395,13 @@ function paneDesk() {
       ? '<div class="big4">' +
           b4('Implied · ATM', pct(sg.atm_iv) + '%', 'annualised', 'am') +
           b4('Realized · 20d', pct(sg.rv20) + '%', 'what the index actually did') +
-          b4('Premium', '+' + prem.toFixed(2), 'implied minus realized, in vol points') +
-          b4('Ratio', (sg.atm_iv / sg.rv20).toFixed(2) + 'x', 'rich above ' +
-             D.params.regime.vrp_rich_threshold.toFixed(2)) +
+          b4('Premium', sg2(prem), 'implied minus realized, in vol points',
+             prem >= 0 ? '' : 'down') +
+          b4('Ratio', (sg.atm_iv / sg.rv20).toFixed(2) + 'x',
+             'rich above ' + D.params.regime.vrp_rich_threshold.toFixed(2) +
+             ', cheap below ' + D.params.regime.vrp_cheap_threshold.toFixed(2)) +
         '</div>' +
-        '<p class="verdict">Implied volatility exceeds realized by <b>' + prem.toFixed(2) +
-        ' points</b>. The market is charging for movement that is not showing up, so the desk ' +
-        'sells defined-risk premium and hedges the tail. It takes no view on direction, ever.</p>'
+        '<p class="verdict">' + verdict(sg, prem) + '</p>'
       : '<div class="big4">' +
           b4('Rotation attempts', n0(f.tried), 'ticks where the primary had nothing to trade') +
           b4('Chains taken', n0(f.taken), f.taken ? 'a candidate was built from this chain'
@@ -449,8 +480,7 @@ function paneSignal() {
   }
   var views = [['ivrv', 'implied vs realized'], ['spread', 'the spread'], ['vrp', 'vrp score']];
   var q = (D.series.quarantine || [])[0] || {};
-  return kstrip() +
-    block('Volatility', sig.length + ' readings · 5 sessions · primary chain only',
+  return     block('Volatility', sig.length + ' readings · 5 sessions · primary chain only',
       '<span class="seg">' + views.map(function (v) {
         return '<button data-sig="' + v[0] + '" aria-selected="' + (view === v[0]) + '">' +
           v[1] + '</button>'; }).join('') + '</span>',
@@ -492,8 +522,7 @@ function paneBooks() {
       '<td class="num">' + (dl == null ? '<span class="f">the book we ran</span>' : m(dl)) + '</td>' +
       '<td class="num">' + m(dd, 0) + '</td><td class="num d">' + arr.length + '</td></tr>';
   }).join('');
-  return kstrip() +
-    block('Four books, one set of ticks', 'counterfactual, not a backtest',
+  return     block('Four books, one set of ticks', 'counterfactual, not a backtest',
       '<span class="seg">' + BOOKS.map(function (b) {
         return '<button data-book="' + b.k + '" aria-selected="' + !!S.books[b.k] + '">' +
           b.n + '</button>'; }).join('') + '</span>',
@@ -554,8 +583,7 @@ function panePositions() {
       '</div></div></td></tr>';
   }).join('');
   var wins = (D.trades || []).filter(function (t) { return t.pnl > 0; }).length;
-  return kstrip() +
-    block('The book', D.counts.structures_total + ' structures · every worst case fixed at entry',
+  return     block('The book', D.counts.structures_total + ' structures · every worst case fixed at entry',
       '<span class="seg">' + tabs.map(function (t) {
         return '<button data-pos="' + t[0] + '" aria-selected="' + (S.pos === t[0]) + '">' +
           t[1] + ' ' + t[2] + '</button>'; }).join('') + '</span>',
@@ -606,8 +634,7 @@ function paneRefusals() {
         (r.vrp != null ? '<span>vrp at the time</span><span>' + r.vrp + '</span>' : '') +
         '</div></div></td></tr>';
     }).join('');
-  return kstrip() +
-    '<div class="grid2 narrow">' +
+  return     '<div class="grid2 narrow">' +
       block('Gate ledger', 'click a rule to filter the stream',
         S.gate ? '<span class="seg"><button data-gate="">clear</button></span>' : '',
         '<span class="lab" style="display:block;margin-bottom:9px">why a trade did not happen</span>' +
@@ -644,8 +671,7 @@ function paneGates() {
         '</b><br>' + (stops ? 'it refused ' + stops + ' candidates — open the rejection stream'
         : 'it has never been the binding constraint on this account') + '</div>' : '') + '</div>';
   }).join('');
-  return kstrip() +
-    block('The rule wall', evals + ' candidate evaluations · 12 gates · each one journalled',
+  return     block('The rule wall', evals + ' candidate evaluations · 12 gates · each one journalled',
       '<span class="seg"><button data-tab="refusals">rejection stream →</button></span>',
       '<div class="gcards">' + cards + '</div>' +
       '<p class="rnote" style="padding:15px 0 0">These run in plain Python before any order ' +
@@ -666,8 +692,7 @@ function paneProof() {
   }).join('');
   var srcs = {}; (v.claims || []).forEach(function (x) { srcs[x.src] = 1; });
   var one = Object.keys(srcs).length === 1 ? Object.keys(srcs)[0] : null;
-  return kstrip() +
-    '<div class="grid2">' +
+  return     '<div class="grid2">' +
       block('The chain', 'every line carries the hash of the one before it', '',
         '<div class="big4" style="grid-template-columns:1fr 1fr;gap:20px">' +
         b4('Journal', n0(v.journal_entries), v.chain_ok ? 'hash chain intact' : 'CHAIN BROKEN',
@@ -709,18 +734,23 @@ function paneProof() {
 
 /* ---- right rail --------------------------------------------------------- */
 function drawRight() {
-  var br = D.broker || {}, bk = D.book, lim = D.limits;
+  var br = D.broker || {}, bk = D.book, lim = D.limits, g = D.greeks || {};
   var openRisk = (D.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
   var biggest = Math.max.apply(null, (D.positions.open || [])
     .map(function (p) { return p.max_loss || 0; }).concat([0]));
   var dayMax = (D.series.daily || []).reduce(function (a, x) {
     return Math.max(a, x.new_risk || 0); }, 0);
   document.getElementById('right').innerHTML =
-    '<div class="sec"><div class="rh"><span class="lab">Account</span>' +
-      '<span class="lab">' + E(D.account) + '</span></div><div class="kv">' +
-      kvr('equity', usd(br.equity)) + kvr('profit and loss', m(bk.pnl)) +
-      kvr('banked', m(bk.realized)) + kvr('open mark', m(bk.unrealized)) +
-      kvr('cash', usd(br.cash)) + '</div></div>' +
+    '<div class="sec"><div class="rh"><span class="lab">Exposure</span>' +
+      '<a data-tab="positions">the book →</a></div><div class="kv">' +
+      kvr('delta', m(g.delta) + ' <em>/ $1 spot</em>') +
+      kvr('theta', m(g.theta) + ' <em>/ day</em>') +
+      kvr('vega', m(g.vega) + ' <em>/ vol pt</em>') +
+      kvr('open structures', D.counts.structures_open + ' <em>of ' +
+          D.counts.structures_total + '</em>') +
+      kvr('cash', usd(br.cash)) + '</div>' +
+      '<p class="rnote2">Exposure in dollars: what the book earns or loses when one thing moves. ' +
+      'Theta positive is the product.</p></div>' +
     '<div class="sec"><div class="rh"><span class="lab">Risk authority</span>' +
       '<a data-tab="gates">rule wall →</a></div><div class="auth">' +
       au('whole book', openRisk, lim.portfolio_cap) +
@@ -800,8 +830,8 @@ function openTrace(t) {
   var steps = [
     ['scan', E(D.params.universe.primary) + ' ' + Number(sig.spot).toFixed(2) +
       ' · chain snapshot stored for replay', ''],
-    ['measure', 'iv ' + pct(sig.iv) + ' · rv ' + pct(sig.rv) + ' · premium +' +
-      ((sig.iv - sig.rv) * 100).toFixed(2) + ' pts · vrp ' + Number(sig.vrp).toFixed(2), ''],
+    ['measure', 'iv ' + pct(sig.iv) + ' · rv ' + pct(sig.rv) + ' · premium ' +
+      sg2((sig.iv - sig.rv) * 100) + ' pts · vrp ' + Number(sig.vrp).toFixed(2), ''],
     ['classify', sig.vrp >= D.params.regime.vrp_rich_threshold ? 'SELL_VOL'
       : sig.vrp < D.params.regime.vrp_cheap_threshold ? 'BUY_VOL' : 'NEUTRAL',
       'Two model roles read the tape independently: ' + E(desk.a || '?') + ' and ' +
@@ -872,7 +902,8 @@ function drawPane() {
   document.getElementById('pane').scrollTop = 0;
 }
 function renderAll() {
-  drawStatus(); drawLeft(); drawTabs(); drawPane(); drawRight(); drawLog(); drawFoot();
+  drawStatus(); drawKpi(); drawLeft(); drawTabs(); drawPane(); drawRight();
+  drawLog(); drawFoot();
 }
 
 document.addEventListener('click', function (e) {
