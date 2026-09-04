@@ -26,3 +26,9 @@ data/keepalive.log
 research/vid/
 # a stray empty store created by a mis-set path
 data/state.sqlite
+
+# the pulse writes constantly; its log and pid are machine-local
+data/pulse.jsonl
+data/pulse.pid
+data/pulse.err
+data/pulse.out

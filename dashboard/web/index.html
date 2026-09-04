@@ -208,6 +208,8 @@ var D = null;
 var LOADED = 0;        /* when this browser last had fresh bytes */
 var EMBEDDED = false;  /* true when a host injected the data */
 var AUTO = true;       /* poll for a new export */
+var PULSE = null;      /* the read-only broker heartbeat */
+var PULSE_AT = 0;
 var S = { tab: 'desk', books: { real: 1, shadow_nogates: 1, shadow_nohedge: 1, baseline_naive: 1 },
           pos: 'open', logf: 'all', gate: null, open: {}, view: 'equity', sym: null };
 
@@ -251,6 +253,10 @@ function drawStatus() {
     '<span class="grp"><span class="k">session</span><b>' + c.structures_total +
       '</b> structures <b>' + n0(D.refusals.all) + '</b> refused <b>' + D.desk.meetings +
       '</b> meetings</span>' +
+    '<span class="grp" id="pulse" title="A read-only poll of the exchange clock, ' +
+      'the account and the last print. It has no order path.">' +
+      '<span class="k">broker pulse</span><span class="pdot" id="pdot"></span>' +
+      '<b id="pv">—</b><span id="pmkt"></span></span>' +
     '<span class="grp"><span class="k">next tick</span><b id="nx">—</b></span>' +
     '<span class="grp last">' +
       '<button class="rbtn" id="reload" title="fetch the export again">refresh</button>' +
@@ -371,8 +377,9 @@ function drawTabs() {
       (n ? '<span class="n">' + n + '</span>' : '') + '</button>';
   }).join('');
 }
-function kc(l, v, s, cls) {
-  return '<div class="kc"><span class="lab">' + E(l) + '</span>' +
+function kc(l, v, s, cls, id) {
+  return '<div class="kc"' + (id ? ' id="' + id + '"' : '') + '><span class="lab">' +
+    E(l) + '</span>' +
     '<div class="v' + (cls ? ' ' + cls : '') + '">' + v + '</div>' +
     '<div class="s">' + s + '</div></div>';
 }
@@ -384,7 +391,7 @@ function drawKpi() {
   var bound = Object.keys(D.refusals.by_gate || {}).length;
   document.getElementById('kpi').innerHTML =
     kc('Equity', usd(b.equity, 0), 'Alpaca paper ' + E(D.account) + ' · read ' +
-       hm(b.asof_utc) + 'Z') +
+       hm(b.asof_utc) + 'Z', '', 'kpi-eq') +
     kc('Profit and loss', m(bk.pnl, 0), 'from $100,000 · <span class="' + sgn(bk.pnl) + '">' +
        (bk.pnl_pct >= 0 ? '+' : '−') + Math.abs(bk.pnl_pct).toFixed(2) + '%</span> · marked ' +
        hm(bk.marked_at) + 'Z') +
@@ -937,6 +944,65 @@ function drawFoot() {
     '<span>' + E(String(D.generated_utc).slice(0, 16).replace('T', ' ')) + 'Z</span>';
 }
 
+/* ---- broker pulse --------------------------------------------------------
+   tools/pulse.py writes live.json every few seconds: the exchange clock, the
+   account, the last print on the primary underlying. It only ever GETs. This
+   updates four nodes in place — redrawing the console every three seconds
+   would make it unusable, and there is nothing else that needs redrawing. */
+var PULSE_MS = 2500;
+function pollPulse() {
+  fetch('live.json', { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (x) { PULSE = x; PULSE_AT = Date.now(); pulseClock(); })
+    .catch(function () { /* no pulse process running: the zone says so */ });
+}
+function pulseClock() {
+  var dot = document.getElementById('pdot'), v = document.getElementById('pv'),
+      mk = document.getElementById('pmkt');
+  if (!dot || !v || !mk) return;
+  if (!PULSE) {
+    dot.className = 'pdot off'; v.textContent = 'not running';
+    mk.textContent = ' · start tools/pulse.py for a live account read';
+    return;
+  }
+  var age = (Date.now() - PULSE_AT) / 1000;
+  dot.className = 'pdot' + (age > 20 ? ' off' : '');
+  var a = PULSE.account || {};
+  v.textContent = a.equity != null ? usd(a.equity) : '—';
+
+  var m = PULSE.market || {}, tail = '';
+  if (m.is_open === true) {
+    tail = ' · market open';
+    if (m.next_close) tail += ' · closes in ' + until(m.next_close);
+  } else if (m.is_open === false) {
+    tail = ' · market closed';
+    if (m.next_open) tail += ' · opens in ' + until(m.next_open);
+  }
+  var lt = PULSE.last_trade || {};
+  if (lt.price) tail += ' · last print ' + usd(lt.price) + ' at ' + hm(lt.at) + 'Z';
+  tail += ' · poll ' + PULSE.seq + ' · ' + Math.round(age) + 's ago';
+  mk.textContent = tail;
+
+  /* the account cell shows the freshest reading there is, and says which */
+  var eq = document.getElementById('kpi-eq');
+  if (eq && a.equity != null) {
+    eq.querySelector('.v').innerHTML = usd(a.equity, 0);
+    eq.querySelector('.s').innerHTML = 'Alpaca paper ' + E(D.account) +
+      ' · polled ' + Math.round(age) + 's ago';
+  }
+}
+/* a plain countdown to an ISO instant, ticking locally between polls */
+function until(iso) {
+  /* the clock endpoint returns exchange-local instants with their offset;
+     parse them as they came rather than assuming UTC */
+  var ms = Date.parse(iso) - Date.now();
+  if (isNaN(ms)) return '—';
+  if (ms < 0) return 'now';
+  var h = Math.floor(ms / 3.6e6), mi = Math.floor((ms % 3.6e6) / 6e4),
+      se = Math.floor((ms % 6e4) / 1000);
+  return (h ? h + 'h ' : '') + (h || mi ? mi + 'm ' : '') + se + 's';
+}
+
 /* ---- pointer readout -----------------------------------------------------
    Hovering a chart is how anyone actually reads one: which tick is this, and
    what was every series worth there. The rule and the dots are already in the
@@ -1097,7 +1163,9 @@ else {
     });
 }
 setInterval(function () { if (AUTO) refresh(false); }, POLL_MS);
-setInterval(function () { ageClock(); tickClock(); }, 1000);
+setInterval(function () { ageClock(); tickClock(); pulseClock(); }, 1000);
+setInterval(pollPulse, PULSE_MS);
+pollPulse();
 })();
 </script>
 </body>

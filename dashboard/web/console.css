@@ -87,6 +87,12 @@ button{font:inherit}
 #status .rbtn:hover{color:var(--white);border-color:var(--amber-b)}
 #status .rbtn.busy{color:var(--amber);border-color:var(--amber-b)}
 #status .age{color:var(--faint);font-size:9.5px;letter-spacing:.08em}
+.pdot{width:6px;height:6px;border-radius:50%;background:var(--up);flex:0 0 6px;
+  animation:beat 2s ease-in-out infinite}
+.pdot.off{background:var(--ghost);animation:none}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.25}}
+#pulse{max-width:none}
+#pmkt{color:var(--faint)}
 #status .age.stale{color:var(--amber)}
 
 /* ---- three columns ------------------------------------------------------ */

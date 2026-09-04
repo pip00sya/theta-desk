@@ -31,9 +31,9 @@ $log = "$repo/data/tick.log"
 try {
   python "$repo/tools/site_data.py" --out "$repo/dashboard/web/data.json" 2>&1 |
     Out-File -Append -Encoding utf8 $log
-  $changed = git -C $repo status --porcelain -- dashboard/web/data.json
+  $changed = git -C $repo status --porcelain -- dashboard/web/data.json dashboard/web/live.json
   if ($changed) {
-    git -C $repo add dashboard/web/data.json
+    git -C $repo add dashboard/web/data.json dashboard/web/live.json
     git -C $repo commit -q -m "data: tick $($utc.ToString('HH:mm'))Z" 2>&1 |
       Out-File -Append -Encoding utf8 $log
     git -C $repo push -q origin master 2>&1 | Out-File -Append -Encoding utf8 $log
