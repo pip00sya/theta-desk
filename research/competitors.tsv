@@ -1,0 +1,31 @@
+slug	name	team	lane	mechanism	threat
+zevora/skew-autonomous-volatility-desk	Skew: Autonomous Volatility Desk	Zevora	VOL	no view on price direction, trades gap between charged and delivered movement, stress grid budget refusal	CRITICAL
+participant/vrp-engine-autonomous-options-agent-on-alpaca	VRP Engine	Participant	VOL	harvests variance risk premium, defined-risk spreads, risk gates, API+MCP+CLI	CRITICAL
+delphi-alpha/delphi-conformal-risk-control-condor	Delphi: Conformal Risk Control Condor	Delphi Alpha	VOL	0DTE SPY iron condor, sells band only when market pays more than certified expected payout, 31 hard gates, LLM votes categories only, audit log	CRITICAL
+beyond-vibe/printrunner-closed-loop-earnings-agent	PrintRunner	beyond-vibe	VOL	earnings options, deterministic verticals/condors, 10 hard gates, mleg, HASH-CHAINED JOURNAL, breaker at 2x costs, hypothesis graph	CRITICAL
+kriz/volta-volatility-surface-trading-agent	VOLTA	KriZ	VOL	detects mispricing across vol surface, scans strikes+expiries, defined-risk spreads, Alpaca MCP, audit trail	HIGH
+capybaraknocknock/caisheng	CaiSheng	CapybaraKnocKnock	VOL	options volatility desk, agents debate event mispricing under critic, 20 risk gates, delta-neutral Level-3 MLEG, zero naked risk	HIGH
+gasbin/pin-desk	Pin Desk	Gasbin	VOL	dealer gamma pin mapping, sells defined-risk premium around pin, 12 gates can veto LLM	HIGH
+luna/markgap-the-pandl-an-agent-can-actually-collect	MARKGAP	Luna	HONESTY	optimises REALISED cash at fixed timestamp not expected return, two books mid+liquidation, drives itself flat before horizon	HIGH
+honest-wheel/honest-wheel-cash-secured-puts-with-an-error-bar	honest-wheel	honest-wheel	HONESTY	reports P&L next to smallest detectable effect over 7 days, says the number proves nothing yet	HIGH
+hindsight-alpha/hindsight-alpha-options-agent-leak-checked	Hindsight Alpha	Hindsight Alpha	HONESTY	scores every parameter twice full-history vs knowable-only, refuses when winners disagree, live dashboard	HIGH
+vetoed/vetoed-an-agent-most-useful-when-it-says-no	Vetoed	Vetoed	GATES	AI least-trusted, measures ~1500 credit spreads/cycle, rejects almost all, gates size and veto, MCP	HIGH
+aegis-labs/aegis-a-trading-agent-you-can-audit	Aegis: a trading agent you can audit	Aegis Labs	AUDIT	re-derives or re-observes every claim a model makes before order reaches broker, refuses what it cannot check	HIGH
+convexity/convexity-the-agent-that-cannot-buy-a-wide-book	Convexity	Convexity	GATES	no model in fill path, mandatory RiskGate on fresh quote, priced at ask never mid, 15-second brain can only reduce risk	HIGH
+uncharted-labs/uncharted-options	Uncharted Options	Uncharted Labs	GATES	defined-risk spreads only, max loss fixed by broker and OCC at construction not by code that must remember	MED
+edgestack-ai/edgestack-evidence-gated-trading-agent	EdgeStack	EdgeStack AI	AUDIT	33 years of data, public graveyard of rejected ideas, journals every trade and refusal	MED
+sonsonsahur/killjoy	KILLJOY	SonSonSahur	DEBATE	analyst->strategy->Kill Agent adversary->debate->8 gates, condors+spreads, counterfactuals on rejected, decision receipts, Vercel	HIGH
+quantum-coders/alphapilot-ai	AlphaPilot AI	Quantum Coders	SIGNAL	SPY SMA/RSI/MACD signals, explainable AI, option chain scan, risk guards, 5-person team, 24 likes	MED
+agent-00trade/sentrytheta-ai-autonomous-options-trading-agent	SentryTheta AI	SentryTheta AI	DEBATE	LLM sentiment + deterministic math guardrails, live execution	MED
+theunemployed/thetaswarm-autonomous-options-alpha-desk	ThetaSwarm	theunemployed	DEBATE	LLM swarm proposes, deterministic Python risk engine + Alpaca MCP enforce guardrails	MED
+dreamteam/devils-advocate	Devil's Advocate	DreamTeam	DEBATE	one model proposes, second challenges, deterministic risk controls	MED
+quantxtreme/alpaca-trading-committee	Alpaca Trading Committee	QuantXtreme	DEBATE	4 LLM analysts debate, 8-rule Risk Governor, journals trades+rejections for counterfactual learning	MED
+haptus/aegis-alpha	Aegis Alpha	Haptus	DEBATE	adversarial AI Investment Committee, asks whether trade deserves capital	MED
+proxima/proxima-quant	Proxima Quant	Proxima	NOVEL	model WRITES a Python program each cycle, runs in sandbox, returns intent, host prices/sizes/refuses, 10-second watcher	HIGH
+futarchists/futarchists-options	Futarchists Options	Futarchists	NOVEL	encodes options strategies as GENETIC SEQUENCES, evolves them through validated research	MED
+nullsignal/z-gate	Z-Gate	NullSignal	NOVEL	Kalman Filter + Ornstein-Uhlenbeck SDE, dynamic beta, links DTE to mean-reversion half-life	MED
+intelliyash/alphaswarm-sovereign-capital	AlphaSwarm Sovereign Capital	AlphaSwarm Sovereign	SCALE	multi-agent hedge fund SaaS, adversarial dialectic, multimodal chart vision, 1000-path Monte Carlo gates	MED
+oracle/oracle-247-autonomous-options-trading-desk	ORACLE	ORACLE	SCALE	24/7, ToT Monte Carlo multi-leg scoring, adversarial risk analysis, Greeks hedging	MED
+i-have-no-idea-what-i-am-doing/noidea-autonomous-options-trader	NoIdea	I have NO IDEA what I am DOING	NOVEL	frontier models in a room, C# decides what they are permitted to do	MED
+thesis/muthur-8400-autonomous-options-trading-agent	MU/TH/UR 8400	MU/TH/UR 8400	NOVEL	states thesis + entry rationale + INVALIDATION CONDITION before every trade, 100% self-hosted	MED
+fermion-fleet/reason-before-result	Reason Before Result	Fermion Fleet	NOVEL	explanation must exist before the order can	MED

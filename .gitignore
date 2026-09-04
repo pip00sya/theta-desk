@@ -21,3 +21,8 @@ data/notes/*.published
 data/watchdog.log
 data/journal/*.lock
 data/keepalive.log
+
+# competitor demo videos pulled for design research: 273MB, not ours to ship
+research/vid/
+# a stray empty store created by a mis-set path
+data/state.sqlite
