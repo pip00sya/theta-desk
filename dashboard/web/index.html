@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>THETA DESK · live</title>
+<title>THETA DESK · Volatility Desk Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -11,27 +11,31 @@
 </head>
 <body>
 
-<div class="top"><div class="wrap">
-  <span class="brand">THETA DESK</span>
-  <span class="tag">An autonomous options desk on Alpaca paper trading. It prices volatility, not direction.</span>
-  <span class="chips" id="chips"></span>
-</div></div>
+<div class="app">
+  <aside class="side">
+    <div class="logo">
+      <span class="mark">Θ</span>
+      <span><span class="nm">THETA DESK</span><span class="sb">Volatility Desk Console</span></span>
+    </div>
+    <nav id="nav"></nav>
+    <div class="end" id="rail-end"></div>
+  </aside>
 
-<main class="wrap" id="page">
-  <div class="err" id="boot">Loading data.json…</div>
-</main>
+  <main class="main" id="main">
+    <div class="err" id="boot">Loading data.json…</div>
+  </main>
+</div>
 
 <script>
 /* ===========================================================================
-   One file in, one page out. Every figure on this page is a field of
+   One file in, one console out. Every figure on this page is a field of
    dashboard/web/data.json, which tools/site_data.py regenerates on every tick.
-   Nothing is computed here that is not arithmetic on those fields, so this
-   page cannot disagree with any other page in the submission.
+   Nothing is computed here beyond arithmetic on those fields, so no two pages
+   in this submission can disagree.
    ======================================================================== */
 (function () {
 'use strict';
 
-/* ---- formatting --------------------------------------------------------- */
 var E = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
   return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
 function money(v, d) {
@@ -40,7 +44,7 @@ function money(v, d) {
   return (v < 0 ? '−' : '+') + '$' + Math.abs(v).toLocaleString('en-US',
     { minimumFractionDigits: d, maximumFractionDigits: d });
 }
-function plain(v, d) {
+function usd(v, d) {
   if (v == null || isNaN(v)) return '—';
   d = d == null ? 2 : d;
   return '$' + Number(v).toLocaleString('en-US',
@@ -48,310 +52,404 @@ function plain(v, d) {
 }
 function pct(v, d) { return v == null ? '—' : (v * 100).toFixed(d == null ? 2 : d) + '%'; }
 function num(v) { return v == null ? '—' : Number(v).toLocaleString('en-US'); }
-function when(t) { return t ? String(t).slice(5, 16).replace('T', ' ') + 'Z' : '—'; }
+function hhmm(t) { return t ? String(t).slice(11, 16) + 'Z' : '—'; }
+function md(t) { return t ? String(t).slice(5, 10) : '—'; }
 function ago(iso) {
   if (!iso) return '';
   var ms = Date.now() - Date.parse(iso.length <= 19 ? iso + 'Z' : iso);
-  if (isNaN(ms)) return '';
+  if (isNaN(ms) || ms < 0) return '';
   var h = Math.floor(ms / 3.6e6), m = Math.round((ms % 3.6e6) / 6e4);
   return h > 0 ? h + 'h ' + m + 'm ago' : m + 'm ago';
 }
+var sgn = function (v) { return v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : ''; };
 
-/* ---- the two charts this page needs, drawn by hand ---------------------- */
-/* An ordinal index, not wall-clock: the series are sampled every 15 minutes
-   inside sessions and not at all between them, so a time axis would be mostly
-   empty gap. One tick is one step. */
-function lineChart(series, opt) {
+/* ---- chart -------------------------------------------------------------- */
+/* An ordinal tick index, not wall-clock: the series are sampled every fifteen
+   minutes inside sessions and not at all between them, so a time axis would be
+   mostly empty gap. One step is one tick. */
+function chart(series, opt) {
   opt = opt || {};
-  var W = 1000, H = opt.height || 260, P = { t: 14, r: 58, b: 22, l: 8 };
+  var W = 1000, H = opt.height || 250, P = { t: 12, r: 64, b: 20, l: 4 };
   var all = [];
   series.forEach(function (s) { s.pts.forEach(function (p) { if (p != null) all.push(p); }); });
-  if (!all.length) return '<div class="sub">no points</div>';
+  if (!all.length) return '<div class="empty">no points yet</div>';
   var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
   if (opt.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
   var pad = (hi - lo) * 0.12 || 1; lo -= pad; hi += pad;
   var n = Math.max.apply(null, series.map(function (s) { return s.pts.length; }));
   var X = function (i) { return P.l + (i / Math.max(1, n - 1)) * (W - P.l - P.r); };
   var Y = function (v) { return P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b); };
-  var out = ['<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img">'];
-
-  // horizontal guides, four of them, labelled on the right
+  var o = ['<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img">'];
   for (var g = 0; g <= 3; g++) {
     var v = lo + (hi - lo) * (g / 3), y = Y(v);
-    out.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y + '" y2="' + y +
-      '" stroke="#26262A" stroke-width="1"/>');
-    out.push('<text x="' + (W - P.r + 8) + '" y="' + (y + 4) +
-      '" fill="#66665F" font-family="IBM Plex Mono, monospace" font-size="11">' +
+    o.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y + '" y2="' + y +
+      '" stroke="rgba(120,150,200,.10)" stroke-width="1"/>');
+    o.push('<text x="' + (W - P.r + 9) + '" y="' + (y + 4) + '" fill="#586780" ' +
+      'font-family="IBM Plex Mono, monospace" font-size="11">' +
       E(opt.fmt ? opt.fmt(v) : v.toFixed(0)) + '</text>');
   }
   if (opt.zero && lo < 0 && hi > 0) {
-    out.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + Y(0) + '" y2="' + Y(0) +
-      '" stroke="#4A4A50" stroke-width="1" stroke-dasharray="3 3"/>');
+    o.push('<line x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + Y(0) + '" y2="' + Y(0) +
+      '" stroke="rgba(120,150,200,.28)" stroke-width="1" stroke-dasharray="3 4"/>');
   }
-  if (opt.band) {                       // fill between the first two series
+  if (opt.band && series.length > 1) {
     var a = series[0].pts, b = series[1].pts, top = [], bot = [];
     for (var i = 0; i < n; i++) {
       if (a[i] == null || b[i] == null) continue;
-      top.push(X(i) + ',' + Y(a[i])); bot.unshift(X(i) + ',' + Y(b[i]));
+      top.push(X(i).toFixed(1) + ',' + Y(a[i]).toFixed(1));
+      bot.unshift(X(i).toFixed(1) + ',' + Y(b[i]).toFixed(1));
     }
-    if (top.length) out.push('<polygon points="' + top.concat(bot).join(' ') +
-      '" fill="' + opt.band + '" opacity="0.16"/>');
+    if (top.length) o.push('<polygon points="' + top.concat(bot).join(' ') + '" fill="' +
+      opt.band + '" opacity="0.13"/>');
   }
   series.forEach(function (s) {
-    var d = '', started = false;
+    var d = '', on = false;
     s.pts.forEach(function (p, i) {
-      if (p == null) { started = false; return; }
-      d += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p).toFixed(1) + ' ';
-      started = true;
+      if (p == null) { on = false; return; }
+      d += (on ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p).toFixed(1) + ' '; on = true;
     });
-    out.push('<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' +
-      (s.w || 2) + '" stroke-linejoin="round" stroke-linecap="round"' +
-      (s.dash ? ' stroke-dasharray="4 4"' : '') + ' opacity="' + (s.op || 1) + '"/>');
+    o.push('<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' +
+      (s.w || 1.8) + '" stroke-linejoin="round" stroke-linecap="round" opacity="' +
+      (s.op || 1) + '"/>');
   });
-  (opt.marks || []).forEach(function (m) {
-    out.push('<line x1="' + X(m.i) + '" x2="' + X(m.i) + '" y1="' + P.t + '" y2="' + (H - P.b) +
-      '" stroke="' + m.color + '" stroke-width="1" opacity="0.5"/>');
-  });
-  (opt.xlabels || []).forEach(function (l) {
-    out.push('<text x="' + X(l.i) + '" y="' + (H - 5) + '" fill="#66665F" text-anchor="middle" ' +
-      'font-family="IBM Plex Mono, monospace" font-size="11">' + E(l.t) + '</text>');
-  });
-  out.push('</svg>');
-  return out.join('');
+  o.push('</svg>');
+  return o.join('');
 }
 
-/* ---- render ------------------------------------------------------------- */
-function render(d) {
-  var S = [];
-  var br = d.broker || {}, bk = d.book || {}, sg = d.signals || {}, gk = d.greeks || {};
-  var v = d.verification || {}, c = d.counts || {}, lim = d.limits || {}, ser = d.series || {};
-
-  /* status chips ---------------------------------------------------------- */
-  var chips = [];
-  chips.push('<span class="chip warn">' + E((d.kv && d.kv.last_tick_mode) === 'market_closed'
-    ? 'MARKET CLOSED' : 'MARKET OPEN') + '</span>');
-  chips.push('<span class="chip">last tick <b>' + E(when(d.last_tick_utc)) + '</b> · ' +
-    E(ago(d.last_tick_utc)) + '</span>');
-  chips.push('<span class="chip ' + (v.chain_ok ? 'live' : '') + '">chain ' +
-    (v.chain_ok ? 'intact' : 'BROKEN') + ' · <b>' + num(v.journal_entries) + '</b> entries</span>');
-  document.getElementById('chips').innerHTML = chips.join('');
-
-  /* 1 — the numbers ------------------------------------------------------- */
-  var openRisk = (d.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
-  S.push('<section><div class="h"><h2>Where the account stands</h2>' +
-    '<span class="n">ALPACA PAPER · ' + E(d.account) + '</span></div>' +
-    '<p class="lede">The desk started with $100,000. <b>' + plain(br.equity) + '</b> is what the ' +
-    'broker says the account is worth right now; the rest of this page explains how it got there ' +
-    'and what it refused to do along the way.</p>' +
-    '<div class="cards">' +
-    card('Account equity', plain(br.equity), 'Alpaca, read at ' + E(String(br.asof_utc || '').slice(11, 16)) + 'Z') +
-    card('Profit and loss', money(bk.pnl), 'marked at the ' + E(String(bk.marked_at || '').slice(11, 16)) + 'Z tick · ' + (bk.pnl_pct >= 0 ? '+' : '−') + Math.abs(bk.pnl_pct).toFixed(2) + '%') +
-    card('Banked', money(bk.realized), num(c.structures_closed) + ' closed trades · cannot be lost') +
-    card('At risk', plain(openRisk, 0), c.structures_open + ' open structures · worst case, defined') +
-    card('Refused', num(d.refusals.all), 'times a rule stopped a trade this week', 'acc') +
-    '</div></section>');
-
-  /* 2 — the signal -------------------------------------------------------- */
-  var sig = (ser.signal || []).filter(function (p) { return p.iv && p.iv < 0.4; });
-  var ivS = { pts: sig.map(function (p) { return p.iv * 100; }), color: '#FFD400', w: 2 };
-  var rvS = { pts: sig.map(function (p) { return p.rv * 100; }), color: '#7FA6C9', w: 2 };
-  var premium = (sg.atm_iv - sg.rv20) * 100;
-  S.push('<section><div class="h"><h2>What the desk sees</h2><span class="n">1 · THE SIGNAL</span></div>' +
-    '<p class="lede">Options are priced off <b>implied volatility</b> — how much the market ' +
-    'expects the index to move. <b>Realized volatility</b> is how much it actually moved. When ' +
-    'implied sits above realized, sellers of options are being overpaid for risk that is not ' +
-    'showing up. That gap is the only thing this desk trades. It never predicts direction.</p>' +
-    '<div class="cards">' +
-    card('Implied · ATM', pct(sg.atm_iv), 'what the market charges', 'acc') +
-    card('Realized · 20 day', pct(sg.rv20), 'what the index actually did') +
-    card('The gap', '+' + premium.toFixed(2) + ' pts', (sg.atm_iv / sg.rv20).toFixed(2) + '× — implied over realized') +
-    card('Verdict', String(sg.regime || '').toUpperCase(), sg.regime === 'rich'
-      ? 'sell defined-risk premium' : sg.regime === 'cheap' ? 'buy convexity' : 'stand down', 'acc') +
-    '</div>' +
-    '<div class="panel"><h3>Implied against realized, every tick</h3>' +
-    '<p class="sub">' + sig.length + ' readings over 5 sessions. The shaded band is the premium ' +
-    'being harvested. Two readings are excluded from the scale: the data feed halved the price ' +
-    'after the close and the desk quarantined those marks itself.</p>' +
-    lineChart([ivS, rvS], { height: 240, band: '#FFD400', fmt: function (x) { return x.toFixed(1) + '%'; } }) +
-    '<div class="legend"><span><i style="background:#FFD400"></i>implied volatility</span>' +
-    '<span><i style="background:#7FA6C9"></i>realized volatility</span>' +
-    '<span><i style="background:rgba(255,212,0,.3)"></i>the premium we sell</span></div>' +
-    '</div></section>');
-
-  /* 3 — what it did ------------------------------------------------------- */
-  var BK = [
-    { k: 'real', label: 'THETA DESK', color: '#F2F2F0', w: 2.4 },
-    { k: 'shadow_nogates', label: 'without the gates', color: '#5B9DFF', w: 1.6 },
-    { k: 'shadow_nohedge', label: 'without the hedge', color: '#9A9A94', w: 1.6 },
-    { k: 'baseline_naive', label: 'naive premium selling', color: '#6E6A5A', w: 1.6 }
-  ];
-  var books = BK.map(function (b) {
-    return { pts: (ser.books[b.k] || []).map(function (p) { return p.v; }),
-             color: b.color, w: b.w, op: b.k === 'real' ? 1 : 0.8 };
-  });
-  var last = function (k) { var a = ser.books[k] || []; return a.length ? a[a.length - 1].v : null; };
-  var rows = BK.map(function (b) {
-    var fin = last(b.k), delta = b.k === 'real' ? null : last('real') - fin;
-    return '<tr><td>' + '<span style="color:' + b.color + '">■</span> ' + E(b.label) + '</td>' +
-      '<td class="num">' + money(fin) + '</td>' +
-      '<td class="num">' + (delta == null ? '<span class="t">the book we ran</span>' : money(delta)) + '</td></tr>';
-  }).join('');
-  S.push('<section><div class="h"><h2>What it did, and what the rules were worth</h2>' +
-    '<span class="n">2 · THE RESULT</span></div>' +
-    '<p class="lede">Alongside the real book the desk marks three <b>counterfactual books</b> on ' +
-    'the identical ticks: one that ignores every risk gate, one that never buys the hedge, and one ' +
-    'that just sells premium on a schedule. They are not a backtest — they are what would have ' +
-    'happened to the very trades we took. No other submission in this field publishes them.</p>' +
-    '<div class="panel">' +
-    lineChart(books, { height: 300, zero: true, fmt: function (x) { return money(x, 0); } }) +
-    '<div class="legend">' + BK.map(function (b) {
-      return '<span><i style="background:' + b.color + '"></i>' + E(b.label) + '</span>'; }).join('') +
-    '</div></div>' +
-    '<div class="panel"><h3>Final position of each book</h3>' +
-    '<table><thead><tr><th>Book</th><th class="num">Profit and loss</th>' +
-    '<th class="num">What we gained against it</th></tr></thead><tbody>' + rows +
-    '</tbody></table>' +
-    '<div class="note">This is an <b>upper bound, not an edge</b>. The shadow books share our ' +
-    'entries and never take profit, so the no-gates book realizes $0.00 against our ' +
-    money(bk.realized) + '. It measures what the gates prevented on the paths we actually took, ' +
-    'nothing more.</div></div></section>');
-
-  /* 4 — what it refused --------------------------------------------------- */
-  var KIND = { entry_refused: 'a risk gate refused it',
-    derisk_mode: 'a scheduled event was close',
-    no_candidate: 'nothing on offer was worth trading',
-    entry_skipped_duplicate: 'we already held it',
-    market_closed: 'the market was closed',
-    desk_veto: 'the desk vetoed it',
-    data_suspect: 'the data looked wrong' };
-  var byKind = d.refusals.by_kind || {}, maxK = Math.max.apply(null, Object.keys(byKind).map(function (k) { return byKind[k]; }));
-  var kbars = Object.keys(byKind).map(function (k) {
-    return bar(KIND[k] || k, byKind[k], maxK);
-  }).join('');
-  var gd = {}; (d.gate_defs || []).forEach(function (g) { gd[g.id] = g; });
-  var byGate = d.refusals.by_gate || {}, maxG = Math.max.apply(null, Object.keys(byGate).map(function (k) { return byGate[k]; }));
-  var gbars = Object.keys(byGate).map(function (k) {
-    return bar((gd[k] ? gd[k].label : k), byGate[k], maxG);
-  }).join('');
-  S.push('<section><div class="h"><h2>What it refused to do</h2><span class="n">3 · THE PRODUCT</span></div>' +
-    '<p class="lede">An autonomous trader is judged as much by what it declines as by what it ' +
-    'takes. This week the desk opened <b>' + num(c.structures_total) + '</b> structures and ' +
-    'refused <b>' + num(d.refusals.all) + '</b> times. Every refusal is a journal line with the ' +
-    'rule that fired and its reason — none of it is written after the fact.</p>' +
-    '<div class="two">' +
-    '<div class="panel"><h3>Why a trade did not happen</h3>' +
-    '<p class="sub">' + num(d.refusals.all) + ' refusals across ' +
-      Object.keys(byKind).length + ' kinds</p><div class="bars">' + kbars + '</div></div>' +
-    '<div class="panel"><h3>Which rule stopped it</h3>' +
-    '<p class="sub">the first gate to fail, over ' + (ser.gates || []).length + ' evaluations of 12 gates</p>' +
-    '<div class="bars">' + gbars + '</div></div>' +
-    '</div>' +
-    '<div class="panel"><h3>The risk it is allowed to take, and the risk it took</h3>' +
-    '<p class="sub">every ceiling below is a percentage of equity set in config.yaml, evaluated in code before any order</p>' +
-    meter('Worst case across the whole book', openRisk, lim.portfolio_cap) +
-    meter('Any single structure', Math.max.apply(null, (d.positions.open || []).map(function (p) { return p.max_loss || 0; }).concat([0])), lim.per_structure) +
-    '</div></section>');
-
-  /* 5 — the book ---------------------------------------------------------- */
-  var openRows = (d.positions.open || []).map(function (p) {
-    return '<tr><td>' + E(p.kind.replace(/_/g, ' ')) + '</td>' +
-      '<td class="t">' + E(p.legs.map(function (l) { return l.symbol.slice(0, 3); })[0]) + ' · ' +
-      p.legs.length + ' legs</td>' +
-      '<td class="num">' + money(p.credit) + '</td>' +
-      '<td class="num">' + plain(p.max_loss, 0) + '</td>' +
-      '<td class="t">' + E(when(p.opened)) + '</td></tr>'; }).join('');
-  var tradeRows = (d.trades || []).map(function (t) {
-    return '<tr><td>' + E(t.kind.replace(/_/g, ' ')) + '</td>' +
-      '<td class="num">' + money(t.pnl, 0) + '</td>' +
-      '<td class="num t">' + (t.hours == null ? '—' : t.hours + 'h') + '</td>' +
-      '<td class="t">' + E(when(t.opened)) + ' → ' + E(when(t.closed)) + '</td></tr>'; }).join('');
-  S.push('<section><div class="h"><h2>The book</h2><span class="n">4 · POSITIONS</span></div>' +
-    '<p class="lede">' + c.structures_open + ' open, ' + c.structures_closed + ' closed and ' +
-    c.structures_unfilled + ' that were never filled — <b>' + c.structures_total + '</b> in total. ' +
-    'Every structure has a defined worst case that is computed before the order is sent, not after.</p>' +
-    '<div class="two">' +
-    '<div class="panel"><h3>Open now</h3><table><thead><tr><th>Structure</th><th>Legs</th>' +
-    '<th class="num">Credit</th><th class="num">Worst case</th><th>Opened</th></tr></thead><tbody>' +
-    openRows + '</tbody></table></div>' +
-    '<div class="panel"><h3>Closed this week</h3><table><thead><tr><th>Structure</th>' +
-    '<th class="num">Result</th><th class="num">Held</th><th>Window</th></tr></thead><tbody>' +
-    tradeRows + '</tbody></table></div></div>' +
-    '<div class="panel"><h3>Greeks, in dollars</h3>' +
-    '<p class="sub">what the book earns or loses when one thing moves</p><div class="cards">' +
-    card('Delta', money(gk.delta), 'per $1 move in the index — near zero by design', null, 'small') +
-    card('Theta', money(gk.theta), 'per day if nothing moves — this is the product', null, 'small') +
-    card('Vega', money(gk.vega), 'per volatility point — short vol, as intended', null, 'small') +
-    '</div></div></section>');
-
-  /* 6 — proof ------------------------------------------------------------- */
-  // every claim currently regenerates with the same command; printing it on
-  // twenty rows is noise, so it is stated once and only a claim that needs a
-  // different command carries one
-  var srcs = {}; (v.claims || []).forEach(function (x) { srcs[x.src] = 1; });
-  var oneSrc = Object.keys(srcs).length === 1 ? Object.keys(srcs)[0] : null;
-  var claims = (v.claims || []).map(function (x) {
-    return '<tr><td>' + E(x.name.replace(/_/g, ' ')) + '</td><td class="num">' + E(x.value) + '</td>' +
-      (oneSrc ? '' : '<td><code>' + E(x.src) + '</code></td>') + '</tr>'; }).join('');
-  S.push('<section><div class="h"><h2>How to check any of this</h2><span class="n">5 · PROOF</span></div>' +
-    '<p class="lede">Every decision is one line in an append-only journal, and each line carries ' +
-    'the SHA-256 of the line before it, so a changed record breaks the chain. The desk stores the ' +
-    'market snapshot it saw, so any decision can be replayed and must produce the same order.</p>' +
-    '<div class="cards">' +
-    card('Journal', num(v.journal_entries), v.chain_ok ? 'hash chain intact' : 'CHAIN BROKEN', v.chain_ok ? null : 'acc', 'small') +
-    card('Tests', v.test_defs + ' / ' + (v.tests_collected || '—'), 'functions written / cases collected', null, 'small') +
-    card('Claims', v.claims_total + ' / ' + v.claims_total, 'regenerate from a fresh clone', null, 'small') +
-    card('Corrections', num(v.devlog), 'documented, including the ones that cost money', null, 'small') +
-    '</div>' +
-    '<div class="panel"><h3>Every number this project claims, and how to reproduce it</h3>' +
-    '<p class="sub">' + (oneSrc ? 'All ' + v.claims_total + ' regenerate from a fresh clone with ' +
-      '<code>' + E(oneSrc) + '</code> — it recomputes each value from the journal and fails if any ' +
-      'one of them disagrees with what is written down.' : 'each row names its own command') + '</p>' +
-    '<table><thead><tr><th>Claim</th><th class="num">Value</th>' +
-    (oneSrc ? '' : '<th>Regenerate with</th>') + '</tr></thead>' +
-    '<tbody>' + claims + '</tbody></table></div>' +
-    '<div class="warnbox"><b>What we know is wrong with this.</b> The counterfactual books share ' +
-    'our entries, so they bound the value of the gates rather than measure it. One integrity ' +
-    'exception is open: the broker reports an option position the store does not know about. ' +
-    'Two marks were quarantined when the feed halved the index price after a close. All three are ' +
-    'on this page because a page that only shows strengths has not been checked.</div>' +
-    '</section>');
-
-  document.getElementById('page').innerHTML = S.join('');
-}
-
-function card(k, v, s, cls, size) {
-  return '<div class="card' + (size ? ' ' + size : '') + '"><div class="k">' + E(k) + '</div>' +
-    '<div class="v' + (cls ? ' ' + cls : '') + '">' + v + '</div>' +
+/* ---- small builders ----------------------------------------------------- */
+function card(accent, k, glyph, v, vcls, s) {
+  return '<div class="card ' + accent + '"><div class="k"><span>' + E(k) + '</span>' +
+    '<span>' + E(glyph || '') + '</span></div>' +
+    '<div class="v' + (vcls ? ' ' + vcls : '') + '">' + v + '</div>' +
     (s ? '<div class="s">' + s + '</div>' : '') + '</div>';
 }
-function bar(label, n, max) {
+function panel(icon, title, sub, badge, body, flush) {
+  return '<div class="panel"><div class="ph"><span class="ic">' + icon + '</span>' +
+    '<h3>' + E(title) + '</h3><span class="sub">' + sub + '</span>' +
+    (badge || '') + '</div><div class="pbody' + (flush ? ' flush' : '') + '">' + body + '</div></div>';
+}
+function bar(label, n, max, color) {
   return '<div class="bar"><span class="lb" title="' + E(label) + '">' + E(label) + '</span>' +
-    '<span class="tr"><span class="fl" style="width:' + (100 * n / max).toFixed(1) + '%"></span></span>' +
+    '<span class="tr"><span class="fl" style="width:' + (100 * n / max).toFixed(1) + '%' +
+    (color ? ';background:' + color : '') + '"></span></span>' +
     '<span class="vv">' + n + '</span></div>';
 }
 function meter(label, used, limit) {
   var p = limit ? Math.min(100, 100 * used / limit) : 0;
-  return '<div class="meter"><span class="lb">' + E(label) + '</span>' +
-    '<span>' + plain(used, 0) + ' <span style="color:#66665F">of ' + plain(limit, 0) + ' allowed</span></span>' +
-    '<span class="tr"><span class="fl" style="width:' + p.toFixed(1) + '%"></span></span></div>';
+  return '<div class="meter"><div class="mh"><span>' + E(label) + '</span>' +
+    '<span><b>' + usd(used, 0) + '</b> of ' + usd(limit, 0) + ' authorised · ' +
+    p.toFixed(0) + '%</span></div><span class="tr"><span class="fl" style="width:' +
+    p.toFixed(1) + '%"></span></span></div>';
+}
+
+/* ---- render ------------------------------------------------------------- */
+function render(d) {
+  var br = d.broker || {}, bk = d.book || {}, sg = d.signals || {}, gk = d.greeks || {},
+      v = d.verification || {}, c = d.counts || {}, lim = d.limits || {}, ser = d.series || {};
+  var closed = d.kv && d.kv.last_tick_mode === 'market_closed';
+  var openRisk = (d.positions.open || []).reduce(function (a, p) { return a + (p.max_loss || 0); }, 0);
+  var S = [];
+
+  /* top bar ------------------------------------------------------------- */
+  S.push('<div class="topbar">' +
+    '<span class="pill ' + (closed ? 'am' : 'gn') + '">' + (closed ? 'market closed' : 'market open') + '</span>' +
+    '<span class="pill">tick ' + num(c.ticks) + ' · ' + hhmm(d.last_tick_utc) + '</span>' +
+    '<span class="pill">' + E(ago(d.last_tick_utc)) + '</span>' +
+    '<span class="q"><span class="s">SPY</span><span class="v">' + usd(sg.spot) + '</span></span>' +
+    '<span class="q"><span class="s">IMPLIED</span><span class="v acc">' + pct(sg.atm_iv) + '</span></span>' +
+    '<span class="q"><span class="s">REALIZED</span><span class="v cyt">' + pct(sg.rv20) + '</span></span>' +
+    '<span class="q"><span class="s">REGIME</span><span class="v acc">' +
+      E(String(sg.regime || '').toUpperCase()) + '</span></span>' +
+    '<span class="sp"></span>' +
+    '<span class="pill ' + (v.chain_ok ? 'gn' : 'rd') + '">chain ' + (v.chain_ok ? 'intact' : 'broken') + '</span>' +
+    '<span class="pill">' + E(d.commit) + '</span></div>');
+
+  S.push('<div class="strip">Alpaca paper account ' + E(d.account) + ' · live since 28 Aug · ' +
+    'every figure on this page is generated from one file and regenerates on every tick</div>');
+
+  /* 1 · overview -------------------------------------------------------- */
+  S.push('<section id="overview"><div class="cards">' +
+    card('cy', 'Account equity', '$', usd(br.equity), '', 'broker, read ' + hhmm(br.asof_utc)) +
+    card(bk.pnl >= 0 ? 'gn' : 'rd', 'Profit and loss', '↗', money(bk.pnl), sgn(bk.pnl),
+      'vs $100,000 start · ' + (bk.pnl_pct >= 0 ? '+' : '−') + Math.abs(bk.pnl_pct).toFixed(2) + '%') +
+    card('gn', 'Banked', '✓', money(bk.realized), sgn(bk.realized),
+      c.structures_closed + ' closed · cannot be lost') +
+    card('vi', 'Open mark', '~', money(bk.unrealized), sgn(bk.unrealized),
+      c.structures_open + ' open · marked ' + hhmm(bk.marked_at)) +
+    card('vi', 'At risk', '⚠', usd(openRisk, 0), '',
+      'worst case, defined before entry') +
+    card('am', 'Refused', '⊘', num(d.refusals.all), 'acc',
+      Object.keys(d.refusals.by_kind || {}).length + ' kinds · the product') +
+    '</div></section>');
+
+  /* 2 · signal ---------------------------------------------------------- */
+  var sig = (ser.signal || []).filter(function (p) { return p.iv && p.iv < 0.4; });
+  var prem = (sg.atm_iv - sg.rv20) * 100;
+  S.push('<h2 class="sec" id="signal">The signal<span>1 · WHY IT TRADES</span></h2>' +
+    '<p class="lede">Options are priced off <b>implied volatility</b> — how much the market ' +
+    'expects the index to move. <b>Realized volatility</b> is how much it actually moved. When ' +
+    'implied sits above realized, whoever sells the option is being overpaid for movement that is ' +
+    'not showing up. That gap is the only thing this desk trades; it never takes a view on ' +
+    'direction.</p>' +
+    panel('◎', 'Volatility surface',
+      sig.length + ' readings · 5 sessions · implied against 20-day realized',
+      '<span class="pill am">+' + prem.toFixed(2) + ' pts · ' + (sg.atm_iv / sg.rv20).toFixed(2) + '×</span>',
+      chart([{ pts: sig.map(function (p) { return p.iv * 100; }), color: '#FBBF24', w: 2 },
+             { pts: sig.map(function (p) { return p.rv * 100; }), color: '#22D3EE', w: 1.8 }],
+            { height: 210, band: '#FBBF24', fmt: function (x) { return x.toFixed(1) + '%'; } }) +
+      '<div class="bars" style="margin-top:14px">' +
+      bar('implied, at the money', +(sg.atm_iv * 100).toFixed(2), 15, '#FBBF24') +
+      bar('realized, 20 sessions', +(sg.rv20 * 100).toFixed(2), 15, '#22D3EE') +
+      '</div>' +
+      '<div class="note">Two readings are excluded from the scale. After a close the data feed ' +
+      'reported the index at half its price; the desk flagged the marks itself and quarantined ' +
+      'them rather than trading on them.</div>'));
+
+  /* 3 · books ----------------------------------------------------------- */
+  var BK = [
+    { k: 'real', label: 'THETA DESK', color: '#DCE4F2', w: 2.3 },
+    { k: 'shadow_nogates', label: 'without the risk gates', color: '#22D3EE', w: 1.6 },
+    { k: 'shadow_nohedge', label: 'without the hedge', color: '#A78BFA', w: 1.6 },
+    { k: 'baseline_naive', label: 'naive premium selling', color: '#8494AC', w: 1.4 }
+  ];
+  var lastOf = function (k) { var a = ser.books[k] || []; return a.length ? a[a.length - 1].v : null; };
+  var bookRows = BK.map(function (b) {
+    var fin = lastOf(b.k), dl = b.k === 'real' ? null : lastOf('real') - fin;
+    return '<tr><td><span style="color:' + b.color + '">■</span> ' + E(b.label) + '</td>' +
+      '<td class="num ' + sgn(fin) + '">' + money(fin) + '</td>' +
+      '<td class="num">' + (dl == null ? '<span class="t">the book we ran</span>' :
+        '<span class="' + sgn(dl) + '">' + money(dl) + '</span>') + '</td></tr>';
+  }).join('');
+  S.push('<h2 class="sec" id="books">Four books, one set of ticks<span>2 · WHAT THE RULES WERE WORTH</span></h2>' +
+    '<p class="lede">Beside the real book the desk marks three <b>counterfactual books</b> on the ' +
+    'identical ticks: one that ignores every risk gate, one that never buys the hedge, and one ' +
+    'that sells premium on a schedule. They are not a backtest — they are what would have happened ' +
+    'to the very trades we took. No other submission in this competition publishes them.</p>' +
+    panel('⑃', 'Equity curves',
+      'marked every tick since 28 Aug · realized plus unrealized',
+      '<span class="pill ' + (bk.pnl >= 0 ? 'gn' : 'rd') + '">' + money(bk.pnl) + '</span>',
+      chart(BK.map(function (b) {
+        return { pts: (ser.books[b.k] || []).map(function (p) { return p.v; }),
+                 color: b.color, w: b.w, op: b.k === 'real' ? 1 : 0.85 };
+      }), { height: 240, zero: true, fmt: function (x) { return money(x, 0); } }) +
+      '<div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);' +
+      'font-size:11px;color:var(--dim)">' +
+      BK.map(function (b) { return '<span><span style="color:' + b.color + '">━</span> ' +
+        E(b.label) + '</span>'; }).join('') + '</div>') +
+    panel('▤', 'Where each book ended', 'the gap is what the rule was worth on the paths we took', '',
+      '<table><thead><tr><th>Book</th><th class="num">Profit and loss</th>' +
+      '<th class="num">We gained against it</th></tr></thead><tbody>' + bookRows + '</tbody></table>' +
+      '<div class="note">This is an <b>upper bound, not an edge</b>. The shadow books share our ' +
+      'entries and never take profit, so the no-gates book realizes $0.00 against our ' +
+      money(bk.realized) + '. It measures what the gates prevented on the paths we actually took, ' +
+      'and nothing more.</div>', true));
+
+  /* 4 · gates ----------------------------------------------------------- */
+  var byGate = d.refusals.by_gate || {};
+  var evals = (ser.gates || []).length;
+  var reached = {};
+  (ser.gates || []).forEach(function (row) {
+    Object.keys(row.r || {}).forEach(function (g) { reached[g] = (reached[g] || 0) + 1; });
+  });
+  var nodes = (d.gate_defs || []).map(function (g) {
+    var stops = byGate[g.id] || 0;
+    var pill = stops ? '<span class="pill am">stopped ' + stops + '</span>'
+                     : '<span class="pill gn">never bound</span>';
+    return '<div class="node"><div class="nh"><span class="nn">' + E(g.label) + '</span>' + pill + '</div>' +
+      '<div class="nd">' + E(g.what) + '</div>' +
+      '<div class="nv">' + E(g.id) + ' · <b>' + (reached[g.id] || 0) + '</b> of ' + evals + ' evaluations</div></div>';
+  }).join('');
+  S.push('<h2 class="sec" id="gates">The rule wall<span>3 · WHAT CAN STOP A TRADE</span></h2>' +
+    '<p class="lede">Twelve rules run in plain Python before any order is sent. The language model ' +
+    'never sees their inputs and cannot argue with their output — it proposes, and the wall ' +
+    'disposes. Every evaluation is written to the journal whether it passed or failed.</p>' +
+    panel('⛨', 'Gate mesh', evals + ' candidate evaluations · 12 gates · each one journalled',
+      '<span class="pill cy">' + Object.keys(byGate).length + ' have ever bound</span>',
+      '<div class="mesh">' + nodes + '</div>') +
+    panel('◫', 'Risk taken against risk authorised',
+      'every ceiling is a percentage of equity, set in config.yaml and evaluated in code', '',
+      meter('Worst case across the whole book', openRisk, lim.portfolio_cap) +
+      meter('Largest single structure',
+        Math.max.apply(null, (d.positions.open || []).map(function (p) { return p.max_loss || 0; }).concat([0])),
+        lim.per_structure) +
+      meter('Most new risk opened in one day', (ser.daily || []).reduce(function (a, x) {
+        return Math.max(a, x.new_risk || 0); }, 0), lim.daily_new)));
+
+  /* 5 · refusals -------------------------------------------------------- */
+  var KIND = { entry_refused: ['a risk gate refused it', 'am'],
+    derisk_mode: ['a scheduled event was close', 'vi'],
+    no_candidate: ['nothing worth trading', 'cy'],
+    entry_skipped_duplicate: ['we already held it', 'cy'],
+    market_closed: ['the market was closed', ''],
+    desk_veto: ['the desk vetoed it', 'rd'],
+    data_suspect: ['the data looked wrong', 'rd'] };
+  var byKind = d.refusals.by_kind || {};
+  var maxK = Math.max.apply(null, Object.keys(byKind).map(function (k) { return byKind[k]; }));
+  var feed = (ser.refusals || []).filter(function (r) { return r.kind !== 'market_closed'; })
+    .slice(-9).reverse().map(function (r, i) {
+    var kd = KIND[r.kind] || [r.kind, ''];
+    return '<div class="frow"><span class="i">' + ('0' + (i + 1)).slice(-2) + '</span>' +
+      '<span class="g">' + E(r.gate || r.kind) + '</span>' +
+      '<span class="w" title="' + E(r.reason) + '">' + E(r.reason) + '</span>' +
+      '<span class="pill ' + kd[1] + '">' + E(kd[0]) + '</span>' +
+      '<span class="t">' + md(r.t) + ' ' + hhmm(r.t) + '</span></div>';
+  }).join('');
+  var gd = {}; (d.gate_defs || []).forEach(function (g) { gd[g.id] = g; });
+  var maxG = Math.max.apply(null, Object.keys(byGate).map(function (k) { return byGate[k]; }));
+  S.push('<h2 class="sec" id="refusals">What it refused to do<span>4 · THE PRODUCT</span></h2>' +
+    '<p class="lede">An autonomous trader is judged as much by what it declines as by what it ' +
+    'takes. This week the desk opened <b>' + num(c.structures_total) + '</b> structures and ' +
+    'refused <b>' + num(d.refusals.all) + '</b> times. Every row below is a journal line carrying ' +
+    'the rule that fired and its reason, written at the moment it happened.</p>' +
+    panel('⊘', 'Refusal feed', 'the most recent nine of ' + num(d.refusals.all) +
+      ' · market-closed rows omitted here, counted below', '<span class="pill am">' + num(d.refusals.all) + '</span>',
+      '<div class="feed">' + feed + '</div>', true) +
+    '<div class="grid2">' +
+    panel('▥', 'Why a trade did not happen', num(d.refusals.all) + ' refusals · ' +
+      Object.keys(byKind).length + ' kinds', '',
+      '<div class="bars">' + Object.keys(byKind).map(function (k) {
+        return bar((KIND[k] || [k])[0], byKind[k], maxK, '#FBBF24'); }).join('') + '</div>') +
+    panel('▧', 'Which rule stopped it', 'first gate to fail · ' + evals + ' evaluations', '',
+      '<div class="bars">' + Object.keys(byGate).map(function (k) {
+        return bar(gd[k] ? gd[k].label : k, byGate[k], maxG); }).join('') + '</div>') +
+    '</div>');
+
+  /* 6 · book ------------------------------------------------------------ */
+  var openRows = (d.positions.open || []).map(function (p) {
+    return '<tr><td>' + E(p.kind.replace(/_/g, ' ')) + '</td>' +
+      '<td class="t">' + E(p.legs[0].symbol.slice(0, 3)) + ' · ' + p.legs.length + ' legs</td>' +
+      '<td class="num ' + sgn(p.credit) + '">' + money(p.credit) + '</td>' +
+      '<td class="num">' + usd(p.max_loss, 0) + '</td>' +
+      '<td class="t">' + md(p.opened) + ' ' + hhmm(p.opened) + '</td></tr>'; }).join('');
+  var tradeRows = (d.trades || []).map(function (t) {
+    return '<tr><td>' + E(t.kind.replace(/_/g, ' ')) + '</td>' +
+      '<td class="num ' + sgn(t.pnl) + '">' + money(t.pnl, 0) + '</td>' +
+      '<td class="num t">' + (t.hours == null ? '—' : t.hours + 'h') + '</td>' +
+      '<td class="t">' + md(t.opened) + ' → ' + md(t.closed) + '</td></tr>'; }).join('');
+  var wins = (d.trades || []).filter(function (t) { return t.pnl > 0; }).length;
+  S.push('<h2 class="sec" id="book">The book<span>5 · POSITIONS</span></h2>' +
+    '<p class="lede">' + c.structures_open + ' open, ' + c.structures_closed + ' closed and ' +
+    c.structures_unfilled + ' never filled — <b>' + c.structures_total + '</b> in all. Every ' +
+    'structure has a worst case computed before the order is sent, not discovered afterwards.</p>' +
+    '<div class="grid2">' +
+    panel('▤', 'Open now', c.structures_open + ' structures · ' + usd(openRisk, 0) + ' at risk', '',
+      openRows ? '<table><thead><tr><th>Structure</th><th>Legs</th><th class="num">Credit</th>' +
+      '<th class="num">Worst case</th><th>Opened</th></tr></thead><tbody>' + openRows +
+      '</tbody></table>' : '<div class="empty">no open positions</div>', true) +
+    panel('▣', 'Closed this week', wins + ' of ' + (d.trades || []).length + ' profitable',
+      '<span class="pill gn">' + money(bk.realized) + '</span>',
+      '<table><thead><tr><th>Structure</th><th class="num">Result</th><th class="num">Held</th>' +
+      '<th>Window</th></tr></thead><tbody>' + tradeRows + '</tbody></table>', true) +
+    '</div>' +
+    panel('Δ', 'Greeks, in dollars', 'what the book earns or loses when one thing moves', '',
+      '<div class="cards" style="margin-top:0">' +
+      card('vi', 'Delta', '', money(gk.delta), sgn(gk.delta), 'per $1 move in the index — near zero by design') +
+      card('gn', 'Theta', '', money(gk.theta), sgn(gk.theta), 'per day if nothing moves — this is the product') +
+      card('am', 'Vega', '', money(gk.vega), sgn(gk.vega), 'per volatility point — short vol, as intended') +
+      '</div>'));
+
+  /* 7 · proof ----------------------------------------------------------- */
+  var COL = { order_open: 'gn', order_close: 'gn', order_hedge: 'gn', entry_refused: 'am',
+    derisk_mode: 'vi', desk_veto: 'rd', tick_crash: 'rd', repair: 'rd', alert: 'rd',
+    data_suspect: 'rd', reprice: 'vi', new_risk_released: 'vi' };
+  var stream = (d.decisions || []).slice(-16).reverse().map(function (r) {
+    return '<div><span class="ts">[' + hhmm(r.t) + ']</span> ' +
+      '<span class="kd ' + (COL[r.kind] || '') + '">' + E(r.kind) + '</span> ' +
+      (r.id ? '<span class="ts">' + E(r.id) + '</span> ' : '') +
+      '<span class="tx">' + E(r.action || '') + (r.reason ? ' — ' + E(r.reason) : '') + '</span></div>';
+  }).join('');
+  var srcs = {}; (v.claims || []).forEach(function (x) { srcs[x.src] = 1; });
+  var oneSrc = Object.keys(srcs).length === 1 ? Object.keys(srcs)[0] : null;
+  var claimRows = (v.claims || []).map(function (x) {
+    return '<tr><td>' + E(x.name.replace(/_/g, ' ')) + '</td><td class="num">' + E(x.value) + '</td>' +
+      (oneSrc ? '' : '<td><code>' + E(x.src) + '</code></td>') + '</tr>'; }).join('');
+  S.push('<h2 class="sec" id="proof">How to check any of it<span>6 · PROOF</span></h2>' +
+    '<p class="lede">Every decision is one line in an append-only journal, and each line carries ' +
+    'the SHA-256 of the line before it, so an edited record breaks the chain. The market snapshot ' +
+    'the desk saw is stored beside the decision, so any tick can be replayed and must produce the ' +
+    'same order.</p>' +
+    '<div class="cards">' +
+    card('gn', 'Journal', '⛓', num(v.journal_entries), '',
+      v.chain_ok ? 'hash chain intact' : 'CHAIN BROKEN') +
+    card('cy', 'Tests', '✓', v.test_defs + ' / ' + (v.tests_collected || '—'), '',
+      'functions written / cases collected') +
+    card('cy', 'Claims', '≡', v.claims_total + ' / ' + v.claims_total, '',
+      'regenerate from a fresh clone') +
+    card('am', 'Corrections', '✎', num(v.devlog), '', 'documented, including costly ones') +
+    '</div>' +
+    panel('⌁', 'Decision stream', 'the tail of the journal, newest first',
+      '<span class="pill cy">' + num(v.journal_entries) + ' entries</span>',
+      '<div class="stream">' + stream + '</div>', true) +
+    panel('⌕', 'Every number this project claims',
+      oneSrc ? 'all ' + v.claims_total + ' regenerate with one command' : 'each row names its command',
+      '<span class="pill gn">' + v.claims_total + ' / ' + v.claims_total + '</span>',
+      (oneSrc ? '<div class="note" style="margin:0 0 14px 0">Run <code>' + E(oneSrc) + '</code> in ' +
+        'a fresh clone: it recomputes every value below from the journal and fails if any one of ' +
+        'them disagrees with what is written down.</div>' : '') +
+      '<table><thead><tr><th>Claim</th><th class="num">Value</th>' +
+      (oneSrc ? '' : '<th>Regenerate with</th>') + '</tr></thead><tbody>' + claimRows +
+      '</tbody></table>') +
+    '<div class="warn"><b>What we know is wrong with this.</b> The counterfactual books share our ' +
+    'entries, so they bound what the gates were worth rather than measure it. One integrity ' +
+    'exception is open: the broker reports an option position the store does not know about. Two ' +
+    'marks were quarantined when the feed halved the index price after a close. All three are on ' +
+    'this page, because a dashboard that only shows strengths has not been checked.</div>');
+
+  S.push('<footer><span>Paper trading only · hypothetical results · not investment advice</span>' +
+    '<span>generated ' + E(String(d.generated_utc).slice(0, 16).replace('T', ' ')) + 'Z from commit ' +
+    E(d.commit) + '</span><a href="terminal.html">open the dense instrument →</a></footer>');
+
+  document.getElementById('main').innerHTML = S.join('');
+
+  /* rail ---------------------------------------------------------------- */
+  var NAV = [
+    ['overview', '▦', 'Overview', money(bk.pnl), bk.pnl >= 0 ? 'gn' : 'rd'],
+    ['signal', '◎', 'Signal', String(sg.regime || '').toUpperCase(), 'am'],
+    ['books', '⑃', 'Four books', '4', 'cy'],
+    ['gates', '⛨', 'Rule wall', '12', 'cy'],
+    ['refusals', '⊘', 'Refusals', num(d.refusals.all), 'am'],
+    ['book', '▤', 'The book', c.structures_open + ' open', 'vi'],
+    ['proof', '⛓', 'Proof', v.chain_ok ? 'intact' : 'broken', v.chain_ok ? 'gn' : 'rd']
+  ];
+  document.getElementById('nav').innerHTML = NAV.map(function (n, i) {
+    return '<a href="#' + n[0] + '" data-s="' + n[0] + '"' + (i === 0 ? ' class="on"' : '') + '>' +
+      '<span class="ic">' + n[1] + '</span><span class="lb">' + E(n[2]) + '</span>' +
+      '<span class="pill ' + n[4] + '">' + E(n[3]) + '</span></a>'; }).join('');
+  document.getElementById('rail-end').innerHTML =
+    '<div><span>ACCOUNT</span><b>' + E(d.account) + '</b></div>' +
+    '<div><span>JOURNAL</span><b>' + num(v.journal_entries) + '</b></div>' +
+    '<div><span>LAST TICK</span><b>' + hhmm(d.last_tick_utc) + '</b></div>' +
+    '<div><span>TESTS</span><b>' + v.test_defs + '/' + (v.tests_collected || '—') + '</b></div>';
+
+  var links = [].slice.call(document.querySelectorAll('#nav a'));
+  var ids = ['overview', 'signal', 'books', 'gates', 'refusals', 'book', 'proof'];
+  // the rail follows the section the reader is actually in: the last one whose
+  // top has passed the header, not whichever observer happened to fire last
+  function mark() {
+    var cur = ids[0];
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.getBoundingClientRect().top <= 96) cur = id;
+    });
+    links.forEach(function (a) { a.classList.toggle('on', a.dataset.s === cur); });
+  }
+  var tick = false;
+  addEventListener('scroll', function () {
+    if (tick) return; tick = true;
+    requestAnimationFrame(function () { mark(); tick = false; });
+  }, { passive: true });
+  mark();
 }
 
 /* ---- boot --------------------------------------------------------------- */
 function boot(d) {
-  try { render(d); } catch (e) {
-    document.getElementById('page').innerHTML =
-      '<div class="err">This page failed to render: ' + E(e.message) + '</div>';
+  try { render(d); }
+  catch (e) {
+    document.getElementById('main').innerHTML =
+      '<div class="err">This console failed to render: ' + E(e.message) + '</div>';
     throw e;
   }
-  var f = document.createElement('footer');
-  f.className = '';
-  f.innerHTML = 'Paper trading only. Hypothetical results. Not investment advice.' +
-    '<span>Every figure on this page comes from one generated file, at commit <code>' +
-    E(d.commit) + '</code>, produced ' + E(String(d.generated_utc).slice(0, 16).replace('T', ' ')) + 'Z.</span>' +
-    '<a href="terminal.html">Open the dense terminal →</a>';
-  document.getElementById('page').appendChild(f);
 }
-
 if (window.__DATA__) { boot(window.__DATA__); }
 else {
   fetch('data.json?' + Math.floor(Date.now() / 60000))
