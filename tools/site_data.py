@@ -33,6 +33,21 @@ from thetadesk.state.store import Store                # noqa: E402
 START_EQUITY = 100_000.0
 BOOKS = ("real", "shadow_nogates", "shadow_nohedge", "baseline_naive")
 
+# Refusals are not one journal kind. An entry can die at a gate, or because the
+# selector found nothing worth trading, or because the desk was in de-risk mode,
+# or because a human-visible duplicate was suppressed. Publishing only
+# entry_refused hid 65 of 109 refusals, which understated the desk's own
+# product. Each kind gets a label so the page never has to invent one.
+REFUSAL_KINDS = {
+    "entry_refused":           "gate refused the candidate",
+    "no_candidate":            "selector produced nothing worth trading",
+    "derisk_mode":             "de-risk window — no new risk",
+    "entry_skipped_duplicate": "duplicate of a structure already open",
+    "market_closed":           "market closed",
+    "desk_veto":               "desk vetoed the candidate",
+    "data_suspect":            "market data flagged as suspect",
+}
+
 
 def _store_path(cfg) -> Path:
     live = Path(cfg.db_path)
@@ -44,11 +59,15 @@ def _store_path(cfg) -> Path:
     raise SystemExit("no store and no dashboard/state.sqlite")
 
 
-def _quality(detail_json: str | None) -> str:
+def _quality(detail_json: str | None) -> dict:
     try:
-        return (json.loads(detail_json or "{}").get("quality") or "ok")
+        return json.loads(detail_json or "{}")
     except ValueError:
-        return "ok"
+        return {}
+
+
+def _ok(detail_json: str | None) -> bool:
+    return (_quality(detail_json).get("quality") or "ok") == "ok"
 
 
 def _legs(structure: dict) -> list[dict]:
@@ -66,87 +85,184 @@ def _legs(structure: dict) -> list[dict]:
     return out
 
 
-# Human labels for the gates. The ids come from the journal itself so this list
-# can never drift from what actually ran; the labels say what each one enforces.
+# Human labels for the gates, and the config keys that define each one, so the
+# page can print what a gate enforces and which parameter governs it without a
+# second hand-maintained list. The ids come from the journal itself, so a gate
+# that stops running disappears from the page on its own.
 GATE_LABELS = {
-    "g2_universe":           ("Universe", "only the underlyings the desk is authorised to trade"),
-    "g3_expiry":             ("Expiry", "no expiry inside the judging horizon or under min DTE"),
-    "g4_defined_risk":       ("Defined risk", "every structure's worst case must be finite and known"),
-    "g5g6_liquidity":        ("Liquidity", "two-sided quotes, relative spread inside the limit"),
-    "g7_structure_size":     ("Structure size", "one structure may not risk more than its share of equity"),
-    "g8_portfolio_worst_case": ("Portfolio worst case", "book + candidate repriced over a +/-20% grid"),
-    "g9_daily_budget":       ("Daily budget", "new risk opened today against the day's allowance"),
-    "g10_time_window":       ("Time window", "no entries in the first or last minutes of a session"),
-    "g14_halt":              ("Drawdown halt", "trading stops after a drawdown from the high-water mark"),
-    "g17_event_derisk":      ("Event de-risk", "no new risk inside the window before a high-class release"),
-    "g18_sleeve_budget":     ("Sleeve budget", "the long-premium sleeve has its own separate allowance"),
-    "g19_feed_freshness":    ("Feed freshness", "stale or one-sided market data refuses the trade"),
+    "g2_universe":             ("Universe", "only the underlyings the desk is authorised to trade",
+                                ["universe.underlyings"]),
+    "g3_expiry":               ("Expiry", "no expiry before the judging horizon or inside min DTE",
+                                ["expiry.min_expiry", "management.min_entry_dte"]),
+    "g4_defined_risk":         ("Defined risk", "every structure's worst case must be finite and known",
+                                []),
+    "g5g6_liquidity":          ("Liquidity", "two-sided quotes, relative spread inside the limit",
+                                ["liquidity.max_rel_spread", "liquidity.require_two_sided"]),
+    "g7_structure_size":       ("Structure size", "one structure may not risk more than its share of equity",
+                                ["risk.per_structure_max_loss_frac"]),
+    "g8_portfolio_worst_case": ("Portfolio worst case", "book + candidate repriced over a ±20% grid",
+                                ["risk.portfolio_worst_case_frac", "risk.portfolio_worst_case_cap",
+                                 "risk.price_grid_low", "risk.price_grid_high", "risk.vol_shock_up_rel"]),
+    "g9_daily_budget":         ("Daily budget", "new risk opened today against the day's allowance",
+                                ["risk.daily_new_risk_frac"]),
+    "g10_time_window":         ("Time window", "no entries in the first or last minutes of a session",
+                                ["timing.no_trade_first_min", "timing.no_trade_last_min"]),
+    "g14_halt":                ("Drawdown halt", "new risk stops after a drawdown from the high-water mark",
+                                ["risk.drawdown_halt_frac"]),
+    "g17_event_derisk":        ("Event de-risk", "no new risk inside the window before a high-class release",
+                                ["events.derisk_hours_before", "events.event_shield_sigmas"]),
+    "g18_sleeve_budget":       ("Sleeve budget", "the long-premium sleeve has its own separate allowance",
+                                ["risk.cheap_sleeve_budget_frac", "risk.cheap_sleeve_budget_cap"]),
+    "g19_feed_freshness":      ("Feed freshness", "stale or one-sided market data refuses the trade",
+                                ["liquidity.max_quote_age_min"]),
 }
 
 
-def _series(entries: list[dict], store, cfg, equity: float) -> dict:
+def _series(entries: list[dict], store, cfg, equity: float, store_path: Path):
     """Every series the page can honestly draw, from the journal and the store.
 
     The dashboard used to publish one equity curve and four scalars, so it could
-    only ever draw one chart. Everything here already existed in the journal;
-    it was simply never exported. Keys are short because these arrays are
-    inlined into the page.
+    only ever draw one chart. Almost nothing here is new information: it already
+    existed in the journal and the store and was simply never exported. Keys are
+    short because these arrays are inlined into the page.
     """
-    sig, gates, desk, refus, integ, derisk, ticks = [], [], [], [], [], [], []
+    primary = cfg.raw.get("universe", {}).get("primary", "SPY")
+    sig, gates, desk, refus, integ, derisk = [], [], [], [], [], []
+    alt, brokerchecks, reprices = [], [], []
+    tick_starts, tick_ends = [], []
     manage: dict[str, list] = {}
+
     for e in entries:
         t, k, d = e["ts"][:19], e["kind"], e.get("data", {})
+
         if k == "signals" and d.get("spot"):
-            sig.append({"t": t, "spot": round(float(d["spot"]), 2),
+            # the tick computes signals from the PRIMARY underlying's chain only
+            # (main.py, DEVLOG #28), so the symbol is known even though older
+            # entries never recorded it
+            sig.append({"t": t, "sym": primary, "spot": round(float(d["spot"]), 2),
                         "rv": d.get("rv20"), "iv": d.get("atm_iv"),
-                        "vrp": d.get("vrp_score")})
+                        "vrp": d.get("vrp_score"), "dq": d.get("data_quality")})
+
         elif k == "gates":
-            res = {r["gate"]: (1 if r["passed"] else 0) for r in d.get("results", [])}
+            results = d.get("results", [])
+            # one gate can appear twice (liquidity runs per leg); a gate is
+            # passed for the row only if every one of its results passed
+            res: dict[str, int] = {}
+            for r in results:
+                res[r["gate"]] = min(res.get(r["gate"], 1), 1 if r["passed"] else 0)
+            payloads: dict[str, object] = {}
+            for r in results:
+                if not r.get("data"):
+                    continue
+                if r["gate"] in payloads:
+                    prev = payloads[r["gate"]]
+                    payloads[r["gate"]] = (prev if isinstance(prev, list) else [prev]) + [r["data"]]
+                else:
+                    payloads[r["gate"]] = r["data"]
             gates.append({"t": t, "sid": (d.get("structure_id") or "")[:8],
                           "kind": d.get("kind"), "qty": d.get("qty"),
                           "passed": bool(d.get("passed")), "r": res,
+                          "d": payloads or None, "wc": d.get("worst_case"),
                           "fails": [{"gate": r["gate"], "reason": r["reason"]}
-                                    for r in d.get("results", []) if not r["passed"]]})
+                                    for r in results if not r["passed"]]})
+
         elif k == "desk":
             ex = d.get("exchanges") or []
             desk.append({"t": t, "a": d.get("regime_analyst"), "b": d.get("regime_second"),
                          "dis": bool(d.get("disagreement")), "veto": bool(d.get("veto")),
-                         "mult": d.get("size_mult"),
+                         "mult": d.get("size_mult"), "sev": d.get("objection_severity"),
                          "dark": bool(ex) and all(not x.get("ok") for x in ex),
-                         "why": (d.get("veto_reason") or d.get("objection") or "")[:120]})
-        elif k == "entry_refused":
-            refus.append({"t": t, "gate": d.get("gate", "?"), "reason": (d.get("reason") or "")[:160]})
+                         "why": (d.get("veto_reason") or d.get("objection") or "")[:160],
+                         "roles": [{"r": x.get("role"), "p": x.get("provider"),
+                                    "m": x.get("model"), "ok": bool(x.get("ok")),
+                                    "fb": (x.get("fallback_reason") or "")[:80],
+                                    "txt": (x.get("response_text") or "")[:600]}
+                                   for x in ex]})
+
+        elif k in REFUSAL_KINDS:
+            refus.append({"t": t, "kind": k, "gate": d.get("gate"),
+                          "reason": (d.get("reason") or REFUSAL_KINDS[k])[:200],
+                          "vrp": d.get("vrp") if isinstance(d.get("vrp"), (int, float)) else None})
+            if k == "derisk_mode":
+                derisk.append({"t": t, "reason": (d.get("reason") or "")[:120]})
+
         elif k == "manage" and d.get("structure_id"):
             sid = d["structure_id"][:8]
             pnl = d.get("est_pnl")
             manage.setdefault(sid, []).append(
-                {"t": t, "a": d.get("action"),
+                {"t": t, "a": d.get("action"), "w": (d.get("reason") or "")[:80],
                  "p": round(float(pnl), 2) if isinstance(pnl, (int, float)) else None})
+
         elif k == "integrity":
             integ.append({"t": t, "ok": bool(d.get("ok")), "reason": (d.get("reason") or "")[:120]})
-        elif k == "derisk_mode":
-            derisk.append({"t": t, "reason": (d.get("reason") or "")[:120]})
+        elif k in ("alt_underlying", "alt_underlying_none"):
+            alt.append({"t": t, "taken": k == "alt_underlying", "sym": d.get("underlying"),
+                        "spot": d.get("spot"), "reason": (d.get("reason") or "")[:120]})
+        elif k == "broker_check":
+            brokerchecks.append({"t": t, "store": d.get("store_realized"),
+                                 "broker": d.get("broker_realized"), "diffs": d.get("diffs"),
+                                 "repaired": d.get("repaired") or [],
+                                 "after": d.get("store_realized_after")})
+        elif k == "reprice":
+            reprices.append({"t": t, "sid": (d.get("structure_id") or "")[:8],
+                             "attempt": d.get("attempt"), "from": d.get("from"), "to": d.get("to")})
+        elif k == "tick_start":
+            tick_starts.append({"t": t, "mock": bool(d.get("mock")), "dry": bool(d.get("dry_run"))})
         elif k == "tick_end":
-            ticks.append({"t": t, "entry": bool(d.get("entry_made"))})
+            tick_ends.append({"t": t, "entry": bool(d.get("entry_made"))})
 
-    # marks carry the greeks, so a book's curve and its risk profile are one row
-    books = {}
+    # a tick is a start; its end (and duration) is the next end after it. A tick
+    # that crashed has no end, and the page must be able to see that.
+    ticks = []
+    ends = list(tick_ends)
+    for s in tick_starts:
+        end = next((e for e in ends if e["t"] >= s["t"]), None)
+        dur = None
+        if end:
+            try:
+                dur = round((datetime.fromisoformat(end["t"]) -
+                             datetime.fromisoformat(s["t"])).total_seconds(), 1)
+            except ValueError:
+                dur = None
+            ends = ends[ends.index(end) + 1:]
+        ticks.append({"t": s["t"], "te": end["t"] if end else None,
+                      "entry": bool(end and end["entry"]), "dur": dur,
+                      "mock": s["mock"], "dry": s["dry"]})
+
+    # marks carry the greeks and the broker's own equity, so a book's curve, its
+    # risk profile and the account it is measured against are one row
+    books, quarantine = {}, []
     for book in BOOKS:
-        rows = [m for m in store.marks(book) if _quality(m.get("detail_json")) == "ok"]
+        rows = store.marks(book)
         books[book] = [{"t": m["ts"][:19],
                         "v": round(float(m["unrealized"] or 0) + float(m["realized"] or 0), 2),
                         "u": round(float(m["unrealized"] or 0), 2),
                         "r": round(float(m["realized"] or 0), 2),
+                        "eq": round(float(m["equity"]), 2) if m["equity"] is not None else None,
                         "d": round(float(m["delta"] or 0), 2),
                         "th": round(float(m["theta"] or 0), 2),
-                        "vg": round(float(m["vega"] or 0), 2)} for m in rows]
+                        "vg": round(float(m["vega"] or 0), 2)} for m in rows if _ok(m["detail_json"])]
+        quarantine += [{"t": m["ts"][:19], "book": book,
+                        "reason": _quality(m["detail_json"]).get("reason", "")[:160]}
+                       for m in rows if not _ok(m["detail_json"])]
 
     seen = {g for row in gates for g in row["r"]}
     gate_defs = sorted(
-        [{"id": g, "label": GATE_LABELS.get(g, (g, ""))[0], "what": GATE_LABELS.get(g, (g, ""))[1]}
-         for g in seen],
+        [{"id": g, "label": GATE_LABELS.get(g, (g, "", []))[0],
+          "what": GATE_LABELS.get(g, (g, "", []))[1],
+          "params": GATE_LABELS.get(g, (g, "", []))[2]} for g in seen],
         # "g5g6_liquidity" must sort as 5, not 56
         key=lambda x: int("".join(itertools.takewhile(str.isdigit, x["id"][1:])) or 0))
+
+    # daily counters: the desk's own per-session tally, kept by the tick
+    daily: dict[str, dict] = {}
+    try:
+        con = sqlite3.connect(f"file:{store_path}?mode=ro", uri=True)
+        for day, key, value in con.execute("select day, key, value from counters order by day"):
+            daily.setdefault(day, {"day": day})[key] = round(float(value), 2)
+        con.close()
+    except sqlite3.Error:
+        daily = {}
 
     r = cfg.raw.get("risk", {})
     limits = {
@@ -157,15 +273,19 @@ def _series(entries: list[dict], store, cfg, equity: float) -> dict:
         "cheap_sleeve":   round(equity * r.get("cheap_sleeve_budget_frac", 0), 2),
         "drawdown_halt":  round(equity * r.get("drawdown_halt_frac", 0), 2),
     }
-    return ({"signal": sig, "books": books, "gates": gates, "desk": desk,
-             "refusals": refus, "manage": manage, "integrity": integ,
-             "derisk": derisk, "ticks": ticks},
-            gate_defs, limits)
+    series = {"signal": sig, "books": books, "gates": gates, "desk": desk,
+              "refusals": refus, "manage": manage, "integrity": integ,
+              "derisk": derisk, "ticks": ticks, "alt": alt,
+              "brokercheck": brokerchecks, "reprice": reprices,
+              "daily": sorted(daily.values(), key=lambda x: x["day"]),
+              "quarantine": quarantine}
+    return series, gate_defs, limits
 
 
 def build() -> dict:
     cfg = cfgmod.load()
-    store = Store(_store_path(cfg))
+    store_path = _store_path(cfg)
+    store = Store(store_path)
     journal = Journal(cfg.journal_dir)
     entries = journal.read_all()
     chain_ok, chain_msg = journal.verify_chain()
@@ -176,7 +296,7 @@ def build() -> dict:
     # real book so the page can explain WHY a curve moved, not just that it did
     curves, greeks = {}, None
     for book in BOOKS:
-        rows = [m for m in store.marks(book) if _quality(m.get("detail_json")) == "ok"]
+        rows = [m for m in store.marks(book) if _ok(m["detail_json"])]
         curves[book] = [{"t": m["ts"][:19],
                          "v": round(float(m["unrealized"] or 0) + float(m["realized"] or 0), 2)}
                         for m in rows]
@@ -185,18 +305,21 @@ def build() -> dict:
             greeks = {"delta": round(float(last["delta"] or 0), 2),
                       "theta": round(float(last["theta"] or 0), 2),
                       "vega": round(float(last["vega"] or 0), 2)}
-    quarantined = sum(1 for b in BOOKS for m in store.marks(b)
-                      if _quality(m.get("detail_json")) != "ok")
+    quarantined = sum(1 for b in BOOKS for m in store.marks(b) if not _ok(m["detail_json"]))
 
     # ---- the book -----------------------------------------------------------
+    # Three buckets, not two. Two structures were never filled; routing them
+    # nowhere made the page say 3 open + 6 closed out of 11 total and left the
+    # reader to notice the arithmetic did not close.
     structures = store.all_structures()
-    open_rows, closed_rows = [], []
+    open_rows, closed_rows, unfilled_rows = [], [], []
     for s in structures:
         row = {
             "id": s["structure_id"][:8],
             "kind": s["kind"],
             "sleeve": s.get("sleeve", "core"),
             "status": s["status"],
+            "qty": s["qty"],
             "credit": round(float(s["net_credit"]), 2),
             "max_loss": round(float(s["max_loss"] or 0)),
             "opened": (s["opened_utc"] or "")[:16],
@@ -208,29 +331,43 @@ def build() -> dict:
             closed_rows.append(row)
         elif s["status"] in ("open", "pending", "closing", "submitting"):
             open_rows.append(row)
+        else:
+            unfilled_rows.append(row)
 
     # ---- decisions: the journal, human-readable -----------------------------
-    KINDS = {"manage", "order_open", "order_close", "order_hedge", "entry_refused",
-             "open_reconcile", "close_reconcile", "derisk_mode", "underlying_order",
-             "chain_relinked", "new_risk_released", "reprice"}
+    # Every kind, not a whitelist of twelve. The blotter is the journal, and a
+    # blotter that silently drops two thirds of the journal is a worse claim
+    # than no blotter. The raw record rides along so a row can be expanded.
+    SKIP = {"marks", "signals"}          # already published as series
+    # A kind that has its own series is already on the page in full; carrying its
+    # raw record a second time in the blotter cost 216KB of the export for no
+    # information. The drawer looks those up by timestamp instead.
+    SERIES_KINDS = SKIP | set(REFUSAL_KINDS) | {
+        "gates", "desk", "manage", "integrity", "tick_start", "tick_end",
+        "alt_underlying", "alt_underlying_none", "broker_check", "reprice"}
     feed = []
     for e in entries:
-        if e["kind"] not in KINDS:
+        if e["kind"] in SKIP:
             continue
         d = e.get("data", {})
-        feed.append({
+        row = {
             "t": e["ts"][:19],
             "kind": e["kind"],
             "id": (d.get("structure_id") or "")[:8],
             "action": d.get("action") or d.get("gate") or "",
-            "reason": (d.get("reason") or "")[:140],
+            "reason": (d.get("reason") or "")[:240],
             "pnl": d.get("est_pnl") if isinstance(d.get("est_pnl"), (int, float)) else d.get("pnl"),
-        })
-    feed = feed[-400:]
+        }
+        if e["kind"] not in SERIES_KINDS:
+            row["d"] = d                  # the raw record, for the drawer
+        feed.append(row)
+    feed = feed[-900:]
+    kinds_census = dict(Counter(e["kind"] for e in entries).most_common())
 
     # ---- refusals: the product ---------------------------------------------
     refused = [e["data"] for e in entries if e["kind"] == "entry_refused"]
     by_gate = Counter(r.get("gate", "?") for r in refused)
+    by_kind = Counter(e["kind"] for e in entries if e["kind"] in REFUSAL_KINDS)
 
     # ---- desk meetings ------------------------------------------------------
     desks = [e["data"] for e in entries if e["kind"] == "desk"]
@@ -241,13 +378,16 @@ def build() -> dict:
     sig = next((e["data"] for e in reversed(entries) if e["kind"] == "signals"), {})
 
     # ---- verification claims (same source the reconciler uses) --------------
+    # The write-up's table already carries the command that regenerates each
+    # claim; reading only three of its four columns threw away the citation.
     writeup = (ROOT / "WRITEUP.md").read_text(encoding="utf-8")
     claims = []
     for line in writeup.splitlines():
         if line.startswith("| ") and line.count("|") >= 4 and line[2:4].strip().isdigit():
             cells = [c.strip() for c in line.split("|")[1:-1]]
             if len(cells) >= 3:
-                claims.append({"n": cells[0], "name": cells[1], "value": cells[2]})
+                claims.append({"n": cells[0], "name": cells[1], "value": cells[2],
+                               "src": cells[3].strip("`") if len(cells) > 3 else ""})
     # pytest COLLECTS more cases than there are `def test_` lines (parametrised
     # tests expand). Publishing one bare "tests" number invites a judge to run
     # pytest, see a different figure, and stop trusting the page. Publish both.
@@ -288,6 +428,13 @@ def build() -> dict:
     last_tick = store.get_kv("last_tick_ts", "")
     real_now = curves["real"][-1]["v"] if curves["real"] else 0.0
     realized = round(float(store.realized_gains()), 2)
+    kv = {k: store.get_kv(k, None) for k in
+          ("high_watermark", "last_tick_mode", "last_tick_ts", "derisk_until")}
+    if kv.get("high_watermark") is not None:
+        try:
+            kv["high_watermark"] = round(float(kv["high_watermark"]), 2)
+        except (TypeError, ValueError):
+            pass
 
     # The broker's equity and our marked book are TWO DIFFERENT NUMBERS: marks are
     # stamped at tick time, the broker moves continuously, and paper cash carries
@@ -332,8 +479,8 @@ def build() -> dict:
     except Exception:
         quotes = None
 
-    series, gate_defs, limits = _series(entries, store, cfg,
-                                       broker["equity"] if broker else START_EQUITY)
+    series, gate_defs, limits = _series(
+        entries, store, cfg, broker["equity"] if broker else START_EQUITY, store_path)
 
     # closed trades as a cross-section: a distribution needs one row per trade
     trades = []
@@ -364,6 +511,7 @@ def build() -> dict:
             "unrealized": round(real_now - realized, 2),
             "marked_at": curves["real"][-1]["t"] if curves["real"] else None,
         },
+        "kv": kv,
         "signals": {
             "spot": sig.get("spot"),
             "rv20": sig.get("rv20"),
@@ -384,9 +532,12 @@ def build() -> dict:
         "params": cfg.raw,
         "curves": curves,
         "marks_quarantined": quarantined,
-        "positions": {"open": open_rows, "closed": closed_rows},
+        "positions": {"open": open_rows, "closed": closed_rows, "unfilled": unfilled_rows},
         "decisions": feed,
-        "refusals": {"total": len(refused), "by_gate": dict(by_gate.most_common())},
+        "kinds": kinds_census,
+        "refusals": {"total": len(refused), "by_gate": dict(by_gate.most_common()),
+                     "by_kind": dict(by_kind.most_common()),
+                     "all": sum(by_kind.values())},
         "desk": {"meetings": len(desks), "llm_dark": llm_dark},
         "verification": {
             "chain_ok": chain_ok,
@@ -406,6 +557,7 @@ def build() -> dict:
             "structures_total": len(structures),
             "structures_open": len(open_rows),
             "structures_closed": len(closed_rows),
+            "structures_unfilled": len(unfilled_rows),
         },
     }
 
@@ -418,15 +570,19 @@ def main() -> int:
     d = build()
     print(f"book pnl {d['book']['pnl']:+,.2f} ({d['book']['pnl_pct']:+.2f}%) "
           f"marked {d['book']['marked_at']}  realized {d['book']['realized']:+,.2f}")
-    b=d.get('broker')
+    b = d.get('broker')
     print(f"broker equity {b['equity']:,.2f}" if b else "broker: no credentials")
-    print(f"open {d['counts']['structures_open']}  closed {d['counts']['structures_closed']}  "
-          f"refusals {d['refusals']['total']}  decisions {len(d['decisions'])}")
-    print(f"chain {'OK' if d['verification']['chain_ok'] else 'BROKEN'} "
-          f"({d['verification']['journal_entries']} entries)  "
+    c = d["counts"]
+    print(f"open {c['structures_open']}  closed {c['structures_closed']}  "
+          f"unfilled {c['structures_unfilled']}  = {c['structures_total']} total")
+    print(f"refusals {d['refusals']['all']} across {len(d['refusals']['by_kind'])} kinds  "
+          f"blotter {len(d['decisions'])} of {d['verification']['journal_entries']}")
+    print(f"chain {'OK' if d['verification']['chain_ok'] else 'BROKEN'}  "
           f"test defs {d['verification']['test_defs']} / collected {d['verification']['tests_collected']}  "
           f"claims {d['verification']['claims_total']}")
-    print(f"curve points: " + ", ".join(f"{k} {len(v)}" for k, v in d["curves"].items()))
+    s = d["series"]
+    print("series: " + ", ".join(f"{k} {len(v)}" for k, v in s.items() if isinstance(v, list)))
+    print("        books " + ", ".join(f"{k} {len(v)}" for k, v in s["books"].items()))
     if a.print:
         return 0
     out = Path(a.out)

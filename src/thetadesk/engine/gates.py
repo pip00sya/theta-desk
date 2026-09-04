@@ -42,7 +42,11 @@ class GateReport:
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
-            "results": [{"gate": r.gate, "passed": r.passed, "reason": r.reason} for r in self.results],
+            # r.data carries the operands a gate compared — the measured value
+            # and the limit it was measured against. Dropping it meant the
+            # journal recorded that a gate fired but never by how much.
+            "results": [{"gate": r.gate, "passed": r.passed, "reason": r.reason,
+                         "data": r.data or None} for r in self.results],
             "worst_case": None if not self.payoff else {
                 "pnl": self.payoff.worst_pnl,
                 "spot_rel": self.payoff.worst_spot_rel,
@@ -169,7 +173,7 @@ def g9_daily_budget(new_risk_today: float, cand_risk: float, equity: float, frac
     total = new_risk_today + cand_risk
     return GateResult("g9_daily_budget", total <= limit + 1e-6,
                       f"today's new risk ${total:,.0f} vs limit ${limit:,.0f}",
-                      {"new_risk_today": new_risk_today, "cand_risk": cand_risk})
+                      {"new_risk_today": new_risk_today, "cand_risk": cand_risk, "limit": limit})
 
 
 def g10_time_window(now_et_minutes_from_open: float | None, minutes_to_close: float | None,
@@ -193,7 +197,7 @@ def g14_halt(equity: float, high_watermark: float, frac: float) -> GateResult:
     return GateResult("g14_halt", dd < frac,
                       f"drawdown {dd:.2%} vs halt at {frac:.2%} "
                       + ("(HALT MODE: managing only)" if dd >= frac else "(ok)"),
-                      {"drawdown": dd})
+                      {"drawdown": dd, "hwm": high_watermark, "frac": frac})
 
 
 def g18_sleeve_budget(structure: Structure, qty: int, open_sleeve_debit: float,
@@ -214,7 +218,7 @@ def g18_sleeve_budget(structure: Structure, qty: int, open_sleeve_debit: float,
     return GateResult("g18_sleeve_budget", total <= limit + 1e-6,
                       f"long-premium sleeve ${total:,.0f} vs cap ${limit:,.0f}"
                       + (f" (earned +${earned:,.0f})" if earned else ""),
-                      {"open_debit": open_sleeve_debit, "cand_debit": cand_debit})
+                      {"open_debit": open_sleeve_debit, "cand_debit": cand_debit, "limit": limit})
 
 
 def g17_event_derisk(now: datetime, events: list[MacroEvent], hours_before: int) -> GateResult:
