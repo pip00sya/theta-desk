@@ -516,8 +516,9 @@
         <div class="gate-no">GATE 06<br>THE MACHINE</div>
         <div>
           <h2>Language models decide whether it's wise. Code decides whether it's allowed.</h2>
-          <p>One cycle, every fifteen minutes of the session. Four model roles argue and may shrink or
-          veto. <b>None of them can loosen a rule, pick a strike, or size a position.</b></p>
+          <p>Two clocks. Every fifteen minutes the desk <b>decides</b>; every minute it
+          <b>manages</b> what it already decided. Four model roles argue on the slow clock and may
+          shrink or veto. <b>None of them can loosen a rule, pick a strike, or size a position.</b></p>
         </div>
       </div>
       <div class="tbl-wrap">
@@ -530,7 +531,8 @@
             <tr><td>Selector</td><td class="n">deterministic</td><td>picks the structure and delta-targets the strikes, least-exposed underlying first</td></tr>
             <tr><td>18 rules</td><td class="n yel">deterministic</td><td>the central one reprices the <b>entire book plus the candidate</b> over a ±20% grid at the judging horizon, base and stressed vol. Breach the budget and the order is never sent.</td></tr>
             <tr><td>Execution</td><td class="n">Alpaca CLI</td><td>one atomic multi-leg limit order, signed net price, idempotent client order id, REST fallback journalled</td></tr>
-            <tr><td>Management</td><td class="n">deterministic</td><td>profit target, structure stop, time stop, trailing stop, regime exit, event shield</td></tr>
+            <tr><td>Sizing</td><td class="n yel">deterministic</td><td>the ladder: <b>2 / 3 / 4%</b> of equity per structure at 0 / 5 / 15 closed trades, and only while the realised result is non-negative. Drawdown takes rungs back at 2% and 3.5%, before the 4% halt. <b>Size is earned, never voted.</b></td></tr>
+            <tr><td>Management</td><td class="n">deterministic</td><td>profit target, structure stop, time stop, trailing stop, regime exit, event shield — checked <b>every minute</b>, on a loop that cannot open a position</td></tr>
           </tbody>
         </table>
       </div>
@@ -560,6 +562,15 @@
         <li><div><b>Two underlyings, not three.</b><span>IWM is in the universe and is offered a
         candidate every tick, but a 10-point wing on a $295 fund cannot clear the $1.80 credit floor.
         The rotation is SPY and QQQ in practice, and their correlation is about 0.9.</span></div></li>
+        <li><div><b>We were not behind on decisions. We were behind on size.</b><span>+$598 realised
+        came off $3,165 of risk that actually closed — <b>+18.9% on the capital genuinely put at
+        risk</b>, while the whole book only ever carried 4.85% of equity. The cause was one constant:
+        a 1.25% per-structure ceiling is $1,255, and a $10-wide index condor costs ~$830 for one
+        contract, so a second never fit. Every position we ever opened went out at one lot — not by
+        choice, by arithmetic. That constant is now a ladder the desk has to climb.</span></div></li>
+        <li><div><b>An exit checked every fifteen minutes has a fifteen-minute hole in it.</b><span>On
+        1 September a position touched its +60% target between ticks and the next tick found it lower.
+        The management loop now runs every minute; it still cannot open anything.</span></div></li>
         <li><div><b>The desk's most expensive bug was its own.</b><span>On 1 September a put was marked
         against the price we <em>expected</em> to pay, 3.74, instead of the 3.66 it filled at. That read
         59.2% against a 60% exit, so it was held, and $208 of profit evaporated overnight. Found by

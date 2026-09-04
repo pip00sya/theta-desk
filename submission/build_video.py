@@ -41,13 +41,17 @@ NARRATION = {
         "structure it was built for. Both branches fired, live, on their own "
         "signal. Every decision is in a hash chained journal."),
     3: ("slide3.png",
-        "Every fifteen minutes of the session, the desk runs one cycle. Four language "
-        "model roles argue about the same numbers: a volatility analyst on Claude; an "
-        "independent second opinion on an open Mistral model — different providers, "
-        "so disagreement is real; a news vetoer; and a risk officer whose only job is "
-        "to attack the trade. They can veto the day and shrink the size. What they "
-        "cannot do is loosen a single risk gate. Twelve of them, all deterministic "
-        "Python."),
+        "The desk runs on two clocks. Every fifteen minutes it decides. Every single "
+        "minute it manages what it already decided — reconcile with the broker, "
+        "re-price the book, check every exit — and that fast loop structurally cannot "
+        "open a position. We added it because an exit checked once a quarter hour is "
+        "an exit with a fifteen minute hole in it, and one of our positions fell "
+        "through that hole. On the slow clock, four language model roles argue about "
+        "the same numbers: a volatility analyst on Claude; an independent second "
+        "opinion on an open Mistral model — different providers, so disagreement is "
+        "real; a news vetoer; and a risk officer whose only job is to attack the "
+        "trade. They can veto the day and shrink the size. What they cannot do is "
+        "loosen a single risk gate. Twelve of them, all deterministic Python."),
     4: ("slide4.png",
         "The central gate is the desk's veto right. Before any order, the entire book "
         "plus the candidate is repriced over a twenty percent price grid at the "
@@ -84,11 +88,18 @@ NARRATION = {
         "credentials required."),
     7: ("account.png",
         "The result, on paper account P A 3 9 C 1 0 Y A M Y Q: a small, explained, "
-        "risk boxed P and L. Six hundred dollars realized, on a book whose worst "
-        "case never left three and a half percent of equity. Every "
-        "position is defined risk. Position size grows only from realized gains. And "
-        "the jobs report that lands on deadline morning is de-risked by rule, the "
-        "day before — the desk will open nothing tomorrow, by design."),
+        "risk boxed P and L. Six hundred dollars realized. Now here is the honest "
+        "number underneath it. That six hundred was made on three thousand one "
+        "hundred and sixty five dollars of risk that actually closed — a return of "
+        "nearly nineteen percent on the capital we genuinely put at risk. We are not "
+        "behind on decisions. We were behind on size, and we can prove exactly why: "
+        "our per structure ceiling was one and a quarter percent of equity, and a ten "
+        "dollar wide index condor costs eight hundred and thirty for a single "
+        "contract. A second one never fit. Every position we ever opened went out at "
+        "one lot — not by choice, by arithmetic. So size is now earned. Two, three, "
+        "then four percent per structure, at zero, five and fifteen closed trades, "
+        "and only while the realized result is non negative. Drawdown takes the rungs "
+        "back before the halt does. The agent cannot vote itself a bigger book."),
     8: ("cover.png",
         "THETA DESK. Language models decide whether it's wise. Code decides whether "
         "it's allowed. Built on Alpaca's Trading API, M C P server, and C L I, by "
