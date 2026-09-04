@@ -75,11 +75,38 @@ def _child_env() -> dict[str, str]:
             "PYTHONIOENCODING": "utf-8"}
 
 
+PASS_TIMEOUT_S = 120        # a pass takes seconds; this is a hung socket, not a slow pass
+
+
+def _release_own_lock(started_iso: str) -> bool:
+    """A pass killed on timeout never reaches its `finally`, and its tick_lock
+    would sit until the 10-minute stale limit — a quarter hour in which the
+    tick skips and every pass yields. The lock's value is the instant it was
+    taken; one taken after this pass started is this pass's, and is cleared."""
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        from thetadesk import config as cfgmod            # noqa: PLC0415
+        from thetadesk.state.store import Store           # noqa: PLC0415
+        store = Store(cfgmod.load().db_path)
+        held = store.get_kv("tick_lock", "") or ""
+        if held and held >= started_iso:
+            store.set_kv("tick_lock", "")
+            return True
+    except Exception as e:                                  # noqa: BLE001
+        log(f"lock check failed: {str(e)[:120]}")
+    return False
+
+
 def run_pass() -> tuple[int, str]:
     """One `thetadesk.main manage` in its own process, under the tick's lock."""
-    r = subprocess.run([sys.executable, "-m", "thetadesk.main", "manage"],
-                       cwd=ROOT, env=_child_env(), capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", timeout=180)
+    started = datetime.now(timezone.utc).isoformat()
+    try:
+        r = subprocess.run([sys.executable, "-m", "thetadesk.main", "manage"],
+                           cwd=ROOT, env=_child_env(), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=PASS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        freed = _release_own_lock(started)
+        return 124, f"pass timed out after {PASS_TIMEOUT_S}s" + (" — its lock released" if freed else "")
     out = (r.stdout or "").strip().splitlines()
     err = (r.stderr or "").strip().splitlines()
     tail = (out[-1] if out else "") + ((" | " + err[-1]) if err else "")
@@ -155,8 +182,9 @@ def main() -> int:
 
         try:
             rc, tail = run_pass()
-        except subprocess.TimeoutExpired:
-            rc, tail = 124, "pass timed out"
+        except Exception as e:                                   # noqa: BLE001
+            # the loop outlives any single pass: log it, wait a minute, go on
+            rc, tail = 125, f"pass could not run: {type(e).__name__}: {str(e)[:160]}"
         passes += 1
         log(f"pass {passes} rc={rc} {tail}")
         if rc == 0 and a.publish_every > 0 and passes % a.publish_every == 0:
