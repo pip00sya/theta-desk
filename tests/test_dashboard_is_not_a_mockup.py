@@ -12,6 +12,7 @@ the desk happened to be in on the day the page was authored.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -106,3 +107,25 @@ def test_the_export_carries_everything_the_page_addresses(data: dict) -> None:
     for key in ("signal", "books", "gates", "desk", "refusals", "manage", "integrity",
                 "alt", "daily", "quarantine"):
         assert key in data["series"], f"the console reads series.{key}"
+
+def test_every_published_figure_reconciles_against_the_agent() -> None:
+    """The export must agree with the store, the journal and the account.
+
+    tools/reality_check.py recomputes each headline figure by a different route
+    — SQLite directly, the journal line by line, the live Alpaca account where
+    credentials exist — and this fails if any of them disagree. It is the
+    difference between a dashboard that is consistent with itself and one that
+    is consistent with what the agent actually did.
+    """
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, "tools/reality_check.py", "--json"],
+                       cwd=root, capture_output=True, text=True, timeout=180,
+                       env={**os.environ, "PYTHONPATH": str(root / "src")})
+    payload = json.loads(r.stdout)
+    bad = [x for x in payload["rows"] if not x["ok"]]
+    assert not bad, "these published figures do not match the agent's own state: " + json.dumps(
+        bad, indent=1, default=str)
+    assert len(payload["rows"]) >= 20, "the reconciliation covers fewer figures than it should"

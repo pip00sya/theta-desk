@@ -205,6 +205,9 @@ function sessionMarks(rows) {
 
 /* ---- state -------------------------------------------------------------- */
 var D = null;
+var LOADED = 0;        /* when this browser last had fresh bytes */
+var EMBEDDED = false;  /* true when a host injected the data */
+var AUTO = true;       /* poll for a new export */
 var S = { tab: 'desk', books: { real: 1, shadow_nogates: 1, shadow_nohedge: 1, baseline_naive: 1 },
           pos: 'open', logf: 'all', gate: null, open: {}, view: 'equity', sym: null };
 
@@ -248,7 +251,49 @@ function drawStatus() {
     '<span class="grp"><span class="k">session</span><b>' + c.structures_total +
       '</b> structures <b>' + n0(D.refusals.all) + '</b> refused <b>' + D.desk.meetings +
       '</b> meetings</span>' +
-    '<span class="grp last"><span class="act">' + act + '</span></span>';
+    '<span class="grp"><span class="k">next tick</span><b id="nx">—</b></span>' +
+    '<span class="grp last">' +
+      '<button class="rbtn" id="reload" title="fetch the export again">refresh</button>' +
+      '<span class="age" id="age">—</span>' +
+      '<span class="act">' + act + '</span></span>';
+  tickClock();
+}
+
+/* The scheduler fires every fifteen minutes from 13:30 to 20:00 UTC, Monday to
+   Friday. Saying when the next one lands is the difference between a page that
+   looks stale and a page that is between ticks. */
+function nextTick(now) {
+  var d = new Date(now.getTime());
+  var day = d.getUTCDay();
+  function at(h, mi, addDays) {
+    var x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(),
+      d.getUTCDate() + (addDays || 0), h, mi, 0, 0));
+    return x;
+  }
+  if (day === 0 || day === 6) return null;
+  var mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  if (mins < 13 * 60 + 30) return at(13, 30);
+  if (mins >= 20 * 60) return null;
+  var since = mins - (13 * 60 + 30);
+  var nextSlot = (Math.floor(since / 15) + 1) * 15 + 13 * 60 + 30;
+  if (nextSlot >= 20 * 60) return null;
+  return at(Math.floor(nextSlot / 60), nextSlot % 60);
+}
+function tickClock() {
+  var now = new Date(), nx = nextTick(now), el = document.getElementById('nx');
+  if (!el) return;
+  if (!nx) { el.textContent = 'market closed'; el.className = ''; return; }
+  var m = Math.max(0, Math.round((nx - now) / 60000));
+  el.textContent = m + 'm';
+  el.className = m <= 1 ? 'am' : '';
+}
+function ageClock() {
+  var el = document.getElementById('age');
+  if (!el || !LOADED) return;
+  var sec = Math.round((Date.now() - LOADED) / 1000);
+  var txt = sec < 60 ? sec + 's ago' : Math.round(sec / 60) + 'm ago';
+  el.textContent = (EMBEDDED ? 'served ' : 'checked ') + txt;
+  el.className = 'age' + (sec > 15 * 60 ? ' stale' : '');
 }
 
 /* ---- left rail ---------------------------------------------------------- */
@@ -984,6 +1029,7 @@ document.addEventListener('click', function (e) {
   if (o) { S.open[o.dataset.open] = !S.open[o.dataset.open]; drawPane(); return; }
   var l = e.target.closest('[data-log]');
   if (l) { S.logf = l.dataset.log; drawLog(); return; }
+  if (e.target.id === 'reload') { refresh(true); return; }
   var tr = e.target.closest('[data-trace]');
   if (tr) { openTrace(tr.dataset.trace); return; }
   if (e.target.id === 'trace') closeTrace();
@@ -1006,16 +1052,52 @@ function boot(d) {
     throw err;
   }
 }
-if (window.__DATA__) { boot(window.__DATA__); }
-else {
-  fetch('data.json?' + Math.floor(Date.now() / 60000))
+/* Poll the export rather than the clock: a 304 costs nothing and the tick only
+   lands every fifteen minutes, so this is a few hundred bytes an hour until
+   something actually changes. */
+var POLL_MS = 60000;
+function refresh(manual) {
+  if (EMBEDDED) {
+    /* no path to fetch from inside the component; reruning the host is the
+       only way to get new bytes, and only a person should decide to do it */
+    if (manual) { try { top.location.reload(); } catch (e) { location.reload(); } }
+    return;
+  }
+  var btn = document.getElementById('reload');
+  if (btn) btn.classList.add('busy');
+  fetch('data.json', { cache: 'no-cache' })
     .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(boot)
+    .then(function (fresh) {
+      LOADED = Date.now();
+      var changed = !D || fresh.generated_utc !== D.generated_utc;
+      if (changed) {
+        var keep = document.getElementById('pane').scrollTop;
+        D = fresh;
+        renderAll();
+        document.getElementById('pane').scrollTop = keep;
+      }
+      ageClock();
+      if (btn) btn.classList.remove('busy');
+    })
+    .catch(function (e) {
+      if (btn) btn.classList.remove('busy');
+      var a = document.getElementById('age');
+      if (a) { a.textContent = 'offline'; a.className = 'age stale'; }
+    });
+}
+
+if (window.__DATA__) { EMBEDDED = true; LOADED = Date.now(); boot(window.__DATA__); }
+else {
+  fetch('data.json', { cache: 'no-cache' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (x) { LOADED = Date.now(); boot(x); })
     .catch(function (e) {
       document.getElementById('boot').textContent =
         'data.json could not be loaded (' + e.message + '). Run: python tools/site_data.py';
     });
 }
+setInterval(function () { if (AUTO) refresh(false); }, POLL_MS);
+setInterval(function () { ageClock(); tickClock(); }, 1000);
 })();
 </script>
 </body>
