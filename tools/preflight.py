@@ -79,8 +79,10 @@ def main() -> int:
         say("ok" if a.get("trading_blocked") is False else "BLOCK", "trading_blocked", str(a.get("trading_blocked")))
     except Exception as e:                                             # noqa: BLE001
         say("BLOCK", "account", f"unreadable: {str(e)[:100]}")
+    market_open = False
     try:
         c = requests.get(TRADING + "/v2/clock", headers=h, timeout=10).json()
+        market_open = bool(c.get("is_open"))
         say("ok", "exchange clock", f"open={c.get('is_open')} next_open={c.get('next_open')}")
     except Exception as e:                                             # noqa: BLE001
         say("BLOCK", "exchange clock", str(e)[:100])
@@ -139,6 +141,20 @@ def main() -> int:
     for name in ("pulse", "manager"):
         alive, det = _pid_alive(ROOT / "data" / f"{name}.pid")
         say("ok" if alive else "warn", f"{name} loop", ("running · " if alive else "NOT running · ") + det)
+    # A live pid is not a working loop: the pass writes last_manage_ts every
+    # minute whether or not it journalled, so its age is the real evidence —
+    # but only while the exchange is open. The loop sleeps to the next open
+    # when it is shut, so an old timestamp overnight is the design, not a fault.
+    if lm and market_open:
+        age_m = (now - datetime.fromisoformat(lm)).total_seconds() / 60
+        limit = float(cfg.raw.get("manage", {}).get("stale_after_min", 6))
+        fresh = age_m <= limit
+        say("ok" if fresh else "warn", "last pass age",
+            f"{age_m:.1f}m vs {limit:g}m" + ("" if fresh else " — the loop is not passing"))
+    elif lm:
+        say("ok", "last pass", f"{lm[:16].replace('T', ' ')}Z · the loop sleeps while the exchange is shut")
+    say("ok", "passes today", f"{int(store.get_counter(today, 'manage_passes'))} · "
+                              f"{int(store.get_counter(today, 'manage_closes'))} close(s) fired")
     q = subprocess.run(["schtasks", "/query", "/tn", "theta-desk-heartbeat", "/fo", "LIST", "/v"],
                        capture_output=True, text=True)
     status = next((l.split(":", 1)[1].strip() for l in q.stdout.splitlines() if l.startswith("Status")), "?")

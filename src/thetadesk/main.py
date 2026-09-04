@@ -87,12 +87,15 @@ def _underlying_of(symbol: str) -> str:
 
 
 def _adopt_unknown_longs(store: Store, broker_positions: list[dict], known: set[str],
-                         journal: Journal) -> list[str]:
+                         journal) -> list[str]:
     """DEVLOG #28: an option position the store does not know about used to
     halt the desk forever (exit 2 every tick until a human edited the store).
     A LONG option is bounded risk (the debit): adopt it as its own structure
     so the existing exits (+60% target, time stop, event lock) manage it and
-    the marks include it. A naked SHORT is still a halt — nothing here trades."""
+    the marks include it. A naked SHORT is still a halt — nothing here trades.
+
+    `journal` is the caller's append function (DEVLOG #36b: a pass passes its
+    lazy one, so adopting a position opens the pass's record)."""
     adopted = []
     for p in broker_positions:
         sym = p.get("symbol", "")
@@ -106,8 +109,8 @@ def _adopt_unknown_longs(store: Store, broker_positions: list[dict], known: set[
         store.upsert_structure(sid, "adopted_long", "core", qty,
                                json.dumps([{"symbol": sym, "qty": 1, "entry_price": px}]),
                                -px, px * 100, "open")
-        journal.append("adopted_position", {"structure_id": sid, "symbol": sym, "qty": qty,
-                                            "avg_entry_price": px})
+        journal("adopted_position", {"structure_id": sid, "symbol": sym, "qty": qty,
+                                     "avg_entry_price": px})
         adopted.append(sym)
     return adopted
 
@@ -131,8 +134,35 @@ def cmd_tick(args) -> int:
     journal = Journal(cfg.journal_dir)
     client = make_client(args.mock)
 
-    journal.append("manage_start" if manage_only else "tick_start",
-                   {"mock": args.mock, "dry_run": dry})
+    # DEVLOG #36b: a TICK always opens its record — every fifteen minutes is a
+    # decision whether or not it trades. A PASS runs 364 times a session and
+    # mostly finds nothing to do; three lines a minute would be 1,092 lines a
+    # day against 1,177 for the desk's entire first week, and the console's
+    # 900-row blotter would hold nothing but heartbeat. So a pass journals only
+    # what HAPPENED: the first real event opens the record, and a pass with no
+    # events writes nothing at all. That it ran is a fact about the process,
+    # not a decision — it lives in the store (last_manage_ts, passes/day).
+    pass_wrote = [False]
+
+    def jappend(kind: str, data: dict):
+        if manage_only and not pass_wrote[0]:
+            pass_wrote[0] = True
+            journal.append("manage_start", {"mock": args.mock, "dry_run": dry})
+        return journal.append(kind, data)
+
+    def end_pass(store: Store, now: datetime, data: dict) -> None:
+        """Close a pass's record — but only if it opened one. Either way the
+        store learns the pass ran, so a silent minute is still provable and
+        the watchdog can tell a quiet desk from a dead loop."""
+        if pass_wrote[0]:
+            journal.append("manage_end", data)
+        store.set_kv("last_manage_ts", now.isoformat())
+        store.add_counter(_today(), "manage_passes", 1)
+        if data.get("closes"):
+            store.add_counter(_today(), "manage_closes", len(data["closes"]))
+
+    if not manage_only:
+        journal.append("tick_start", {"mock": args.mock, "dry_run": dry})
 
     # ---- L1: account + clock ---------------------------------------------
     account = client.account()
@@ -180,7 +210,7 @@ def cmd_tick(args) -> int:
         if risk <= 0:
             return
         store.add_counter(_today(), "new_risk", -risk)
-        journal.append("new_risk_released", {"structure_id": s["structure_id"], "risk": risk,
+        jappend("new_risk_released", {"structure_id": s["structure_id"], "risk": risk,
                                              "lots": n, "reason": reason})
 
     def reconcile_working() -> None:
@@ -193,7 +223,7 @@ def cmd_tick(args) -> int:
             pend = {s["structure_id"]: json.loads(store.get_kv(f"close_order:{s['structure_id']}", "{}"))
                     for s in closing}
             for ra in reconcile_closing(closing, pend, client.order_by_client_id, now, fill_wait):
-                journal.append("close_reconcile", ra.__dict__)
+                jappend("close_reconcile", ra.__dict__)
                 if ra.action == "closed":
                     store.set_status(ra.structure_id, "closed", ra.pnl)
                     store.set_kv(f"close_missed:{ra.structure_id}", "")
@@ -212,10 +242,10 @@ def cmd_tick(args) -> int:
                     # the real fill, canceled -> reverted).
                     try:
                         client.cancel_order(ra.order_id)
-                        journal.append("close_cancel_sent", {"structure_id": ra.structure_id,
+                        jappend("close_cancel_sent", {"structure_id": ra.structure_id,
                                                              "order_id": ra.order_id})
                     except Exception as e:  # leave it 'closing'; next tick retries
-                        journal.append("close_cancel_failed", {"structure_id": ra.structure_id,
+                        jappend("close_cancel_failed", {"structure_id": ra.structure_id,
                                                                "error": str(e)[:300]})
                 elif ra.action == "reverted":
                     store.set_status(ra.structure_id, "open")
@@ -234,7 +264,7 @@ def cmd_tick(args) -> int:
             po_map = {s["structure_id"]: json.loads(store.get_kv(f"open_order:{s['structure_id']}", "{}"))
                       for s in pending}
             for ra in reconcile_pending(pending, po_map, client.order_by_client_id, now, fill_wait):
-                journal.append("open_reconcile", ra.__dict__)
+                jappend("open_reconcile", ra.__dict__)
                 s = next(x for x in pending if x["structure_id"] == ra.structure_id)
                 if ra.action == "filled":
                     net = ra.net_credit if ra.net_credit is not None else s["net_credit"]
@@ -264,10 +294,10 @@ def cmd_tick(args) -> int:
                 elif ra.action == "cancel_unfilled":
                     try:
                         client.cancel_order(ra.order_id)
-                        journal.append("open_cancel_sent", {"structure_id": ra.structure_id,
+                        jappend("open_cancel_sent", {"structure_id": ra.structure_id,
                                                             "order_id": ra.order_id})
                     except Exception as e:  # stays 'pending'; next tick retries
-                        journal.append("open_cancel_failed", {"structure_id": ra.structure_id,
+                        jappend("open_cancel_failed", {"structure_id": ra.structure_id,
                                                               "error": str(e)[:300]})
                     # Status untouched on purpose (DEVLOG #28b): the DELETE is
                     # asynchronous and the order can still fill inside the
@@ -306,9 +336,9 @@ def cmd_tick(args) -> int:
             try:
                 found = client.order_by_client_id(coid)
             except Exception as e:
-                journal.append("order_lookup_failed", {"structure_id": sid, "error": str(e)[:200]})
+                jappend("order_lookup_failed", {"structure_id": sid, "error": str(e)[:200]})
             if found:
-                journal.append("order_recovered_by_client_id", {"structure_id": sid,
+                jappend("order_recovered_by_client_id", {"structure_id": sid,
                                                                  "order_id": found.get("id"),
                                                                  "status": found.get("status")})
                 res.ok, order = True, found
@@ -330,12 +360,21 @@ def cmd_tick(args) -> int:
         ok, why = integrity_check(open_structs, positions)
         if not ok and why.startswith("unknown option positions"):
             known = {d["symbol"] for s in open_structs for d in json.loads(s["legs_json"])}
-            adopted = _adopt_unknown_longs(store, positions, known, journal)
+            adopted = _adopt_unknown_longs(store, positions, known, jappend)
             if adopted:
                 alerts.alert("WARN", "adopted unknown long positions", ", ".join(adopted),
                              journal=journal)
                 ok, why = integrity_check(store.open_structures(), positions)
-        journal.append("integrity", {"ok": ok, "reason": why})
+        # A tick records the verdict every time — that is the fifteen-minute
+        # audit trail. A pass records it only when it CHANGED (DEVLOG #36b):
+        # 364 identical "book/broker consistent" lines a session are not
+        # evidence of anything the previous one did not already prove, and the
+        # alerts below already fire on the transition, not on the state.
+        verdict = f"{ok}|{why}"
+        if not manage_only or store.get_kv("integrity_verdict", "") != verdict:
+            jappend("integrity", {"ok": ok, "reason": why,
+                                  **({"changed": True} if manage_only else {})})
+        store.set_kv("integrity_verdict", verdict)
         _alert_on_change(store, "integrity", not ok, "CRITICAL",
                          "integrity breach — new risk halted", why, journal)
         _alert_on_change(store, "drift", ok and "DRIFT" in why, "WARN", "book/broker drift",
@@ -352,8 +391,7 @@ def cmd_tick(args) -> int:
         ok, why = check_integrity()
         if manage_only:
             # not a refusal and not a tick: the fast loop found the exchange shut
-            journal.append("manage_end", {"market_closed": True, "integrity_ok": ok})
-            store.set_kv("last_manage_ts", now.isoformat())
+            end_pass(store, now, {"market_closed": True, "integrity_ok": ok})
             print(json.dumps({"manage": True, "market_closed": True}))
             return 0
         journal.append("market_closed", {"next_open": clock.get("next_open"), "integrity_ok": ok})
@@ -365,8 +403,7 @@ def cmd_tick(args) -> int:
     if manage_only and not store.open_structures():
         # nothing at the broker to manage: one integrity read, no chain fetch
         ok, why = check_integrity()
-        journal.append("manage_end", {"idle": True, "integrity_ok": ok})
-        store.set_kv("last_manage_ts", now.isoformat())
+        end_pass(store, now, {"idle": True, "integrity_ok": ok})
         print(json.dumps({"manage": True, "idle": True}))
         return 0
 
@@ -383,7 +420,7 @@ def cmd_tick(args) -> int:
                      for s in store.open_structures() for d in json.loads(s["legs_json"])}
     fetch_expiries = sorted({expiry} | book_expiries)
     if expiry != cfg["expiry"]["target_expiry"]:
-        journal.append("expiry_roll", {"target": expiry, "book_expiries": sorted(book_expiries)})
+        jappend("expiry_roll", {"target": expiry, "book_expiries": sorted(book_expiries)})
 
     def chains_for(u: str) -> dict[str, dict]:
         out: dict[str, dict] = {}
@@ -404,8 +441,7 @@ def cmd_tick(args) -> int:
         check_integrity()
         if manage_only:
             # the tick raises the alarm; a pass a minute must not page 390 times
-            journal.append("manage_end", {"skipped": True, "data_quality": dq.to_dict()})
-            store.set_kv("last_manage_ts", now.isoformat())
+            end_pass(store, now, {"skipped": True, "data_quality": dq.to_dict()})
             print(json.dumps({"manage": True, "skipped": True, "data_quality": dq.to_dict()}))
             return 0
         alerts.alert("WARN", "tick skipped: market data failed the quality gate",
@@ -471,9 +507,9 @@ def cmd_tick(args) -> int:
     def write_snapshot() -> None:
         snap_path.parent.mkdir(parents=True, exist_ok=True)
         snap_path.write_text(json.dumps(snap_doc), encoding="utf-8")
-        journal.append("signals", {**signals.to_dict(), "snapshot": snap_path.name,
-                                   "data_quality": dq.mode, "expiry": expiry,
-                                   **({"manage": True} if manage_only else {})})
+        jappend("signals", {**signals.to_dict(), "snapshot": snap_path.name,
+                            "data_quality": dq.mode, "expiry": expiry,
+                            **({"manage": True} if manage_only else {})})
 
     # A tick always leaves its snapshot: every decision replays. A management
     # pass leaves one only when it produces an order (DEVLOG #36): 390 holds a
@@ -527,9 +563,9 @@ def cmd_tick(args) -> int:
         write_snapshot()               # an order-producing pass replays like a tick
     for a in actions:
         if not manage_only or a.action != "hold":
-            journal.append("manage", a.__dict__)   # a pass journals decisions, not holds
+            jappend("manage", a.__dict__)   # a pass journals decisions, not holds
         if a.action == "close" and not dry and mins_to_close is not None and mins_to_close < close_buffer_min:
-            journal.append("close_deferred", {"structure_id": a.structure_id,
+            jappend("close_deferred", {"structure_id": a.structure_id,
                                               "reason": f"{mins_to_close:.0f}m to close"})
         elif a.action == "close" and not dry:
             s = next(x for x in open_structs if x["structure_id"] == a.structure_id)
@@ -543,11 +579,11 @@ def cmd_tick(args) -> int:
             cross = store.get_kv(f"close_missed:{s['structure_id']}", "") == _today()
             pkg = structure_close_price(legs, chain, cross=cross)
             if pkg is None:
-                journal.append("close_skipped_unquoted", {"structure_id": s["structure_id"]})
+                jappend("close_skipped_unquoted", {"structure_id": s["structure_id"]})
                 continue
             close_px = abs(pkg)
             if cross:
-                journal.append("close_cross_spread", {"structure_id": s["structure_id"],
+                jappend("close_cross_spread", {"structure_id": s["structure_id"],
                                                       "attempt": attempt, "limit": round(close_px, 2)})
             if len(legs) == 1:
                 l = legs[0]
@@ -565,7 +601,7 @@ def cmd_tick(args) -> int:
                 "client_order_id": coid, "est_pnl": a.est_pnl,
                 "ts": now.isoformat(), "order_id": None}))
             res = cli_bridge.submit(payload, client, dry_run=dry)
-            journal.append("order_close", {"structure_id": s["structure_id"],
+            jappend("order_close", {"structure_id": s["structure_id"],
                                            "transport": res.transport, "ok": res.ok,
                                            "ambiguous": res.ambiguous,
                                            "error": res.error, "limit": round(close_px, 2)})
@@ -575,10 +611,10 @@ def cmd_tick(args) -> int:
                 try:
                     found = client.order_by_client_id(coid)
                 except Exception as e:
-                    journal.append("order_lookup_failed", {"structure_id": s["structure_id"],
+                    jappend("order_lookup_failed", {"structure_id": s["structure_id"],
                                                            "error": str(e)[:200]})
                 if found:
-                    journal.append("order_recovered_by_client_id", {
+                    jappend("order_recovered_by_client_id", {
                         "structure_id": s["structure_id"], "order_id": found.get("id"),
                         "status": found.get("status")})
                     res.ok, order = True, found
@@ -590,7 +626,7 @@ def cmd_tick(args) -> int:
                     "ts": now.isoformat(), "order_id": (order or {}).get("id")}))
             else:
                 store.set_status(s["structure_id"], "open")
-                journal.append("close_not_at_broker", {"structure_id": s["structure_id"],
+                jappend("close_not_at_broker", {"structure_id": s["structure_id"],
                                                        "error": res.error[:200]})
                 alerts.alert("WARN", "close order failed",
                              f"{s['kind']} {s['structure_id']}: {res.error[:200]}", journal=journal)
@@ -598,21 +634,29 @@ def cmd_tick(args) -> int:
             # the offline demo realizes P&L so the ablation books have exits
             store.set_status(a.structure_id, "closed", a.est_pnl)
         elif a.action == "close" and dry:
-            journal.append("manage_dry_close", {"structure_id": a.structure_id, "est_pnl": a.est_pnl})
+            jappend("manage_dry_close", {"structure_id": a.structure_id, "est_pnl": a.est_pnl})
 
     if manage_only:
         # ---- the fast loop ends here: it manages, it never opens ------------
-        marks = shadow.mark_all_books(store, spot_map, now, iv_map, store.realized_gains(),
-                                      broker_equity=equity, chain=chain,
-                                      quality="ok" if dq.mode == "full" else "suspect")
+        # A mark every minute is 1,456 rows a session across four books, and
+        # nobody can read a curve that dense. The pass marks on a cadence
+        # (mark_every_passes, ~5 min) or whenever it acted — so the curve moves
+        # between ticks, which is the point, without burying the day.
         closes = [a.structure_id for a in actions if a.action == "close"]
-        journal.append("manage_end", {"open": len(live_open), "closes": closes,
-                                      "holds": sum(1 for a in actions if a.action == "hold"),
-                                      # why each one was held, so a quiet pass explains itself
-                                      "held": {a.structure_id[:8]: [a.reason[:80], round(a.est_pnl, 2)]
-                                               for a in actions if a.action == "hold"},
-                                      "mode": dq.mode, "marks": marks})
-        store.set_kv("last_manage_ts", now.isoformat())
+        every = max(1, int(cfg.raw.get("manage", {}).get("mark_every_passes", 5)))
+        n = int(store.get_counter(_today(), "manage_passes"))
+        marks = None
+        if closes or n % every == 0:
+            marks = shadow.mark_all_books(store, spot_map, now, iv_map, store.realized_gains(),
+                                          broker_equity=equity, chain=chain,
+                                          quality="ok" if dq.mode == "full" else "suspect")
+        end_pass(store, now, {"open": len(live_open), "closes": closes,
+                              "holds": sum(1 for a in actions if a.action == "hold"),
+                              # why each one was held, so a pass that acted also
+                              # says what it left alone and at what mark
+                              "held": {a.structure_id[:8]: [a.reason[:80], round(a.est_pnl, 2)]
+                                       for a in actions if a.action == "hold"},
+                              "mode": dq.mode, "marks": marks})
         print(json.dumps({"manage": True, "open": len(live_open), "closes": closes,
                           "marks": marks, "mode": dq.mode}))
         return 0

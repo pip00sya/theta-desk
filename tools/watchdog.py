@@ -43,20 +43,36 @@ def in_session(now: datetime) -> bool:
     return SESSION_START <= hm <= SESSION_END
 
 
+def _age_min(raw: str, now: datetime) -> float | None:
+    if not raw:
+        return None
+    return (now - datetime.fromisoformat(raw)).total_seconds() / 60
+
+
 def check(now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     cfg = cfgmod.load()
     store = Store(cfg.db_path)
     try:
         raw = store.get_kv("last_tick_ts", "")
+        raw_manage = store.get_kv("last_manage_ts", "")
     finally:
         store.conn.close()
-    last = datetime.fromisoformat(raw) if raw else None
-    age_min = (now - last).total_seconds() / 60 if last else None
+    age_min = _age_min(raw, now)
     stale = in_session(now) and (age_min is None or age_min > STALE_MIN)
+    # DEVLOG #36b: the fast loop is a second thing that can die on its own. If
+    # it does, exits quietly fall back to the fifteen-minute tick and nothing
+    # says so — the desk looks healthy while its fast hand is gone. The loop
+    # writes last_manage_ts every pass, whether or not the pass journalled.
+    m_stale_after = float(cfg.raw.get("manage", {}).get("stale_after_min", 6))
+    age_manage = _age_min(raw_manage, now)
+    manage_stale = in_session(now) and (age_manage is None or age_manage > m_stale_after)
     return {"now": now.isoformat(timespec="seconds"), "in_session": in_session(now),
             "last_tick_ts": raw or None, "age_min": None if age_min is None else round(age_min, 1),
-            "stale": stale}
+            "stale": stale,
+            "last_manage_ts": raw_manage or None,
+            "manage_age_min": None if age_manage is None else round(age_manage, 1),
+            "manage_stale": manage_stale, "manage_stale_after_min": m_stale_after}
 
 
 def main() -> int:
@@ -85,6 +101,26 @@ def main() -> int:
         print("recovered -> cleared", v)
     else:
         print("ok", v)
+
+    # The fast loop dies on its own terms (DEVLOG #36b). Its own marker, so a
+    # dead loop and a dead scheduler are two different pages, and a desk that
+    # is ticking but no longer managing every minute cannot look healthy.
+    m_marker = ROOT / "data" / "notes" / f"{session_date(now)}.manager"
+    if v["manage_stale"] and not m_marker.exists():
+        last = v["last_manage_ts"] or "никогда"
+        age = f"{v['manage_age_min']:.0f} мин" if v["manage_age_min"] is not None else "—"
+        alerts.alert("WARN", "быстрый цикл выходов молчит",
+                     f"Последний проход: {last[:16].replace('T', ' ')} UTC, прошло {age}.\n"
+                     f"Правила выхода сейчас проверяются только тиком — раз в 15 минут.\n"
+                     f"Позиции сопровождаются, но медленнее. Запустить: ops\\manager.ps1")
+        m_marker.parent.mkdir(parents=True, exist_ok=True)
+        m_marker.write_text(v["now"], encoding="utf-8")
+        print("manager stale -> alerted")
+    elif not v["manage_stale"] and m_marker.exists():
+        alerts.alert("INFO", "быстрый цикл вернулся",
+                     f"Проходы возобновились в {v['now'][11:16]} UTC.")
+        m_marker.unlink()
+        print("manager recovered -> cleared")
     return 0
 
 

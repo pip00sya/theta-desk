@@ -25,20 +25,49 @@ def _kinds(cfg):
     return [e["kind"] for e in _journal(cfg)]
 
 
-def test_pass_on_an_empty_desk_is_one_integrity_read(desk):
+def test_the_first_pass_records_the_integrity_verdict_then_goes_quiet(desk):
+    """DEVLOG #36b: a pass journals only what HAPPENED. The first one records
+    the integrity verdict because it is new; the next 363 in the session find
+    the same verdict and write NOTHING — otherwise one session would be 1,092
+    lines against 1,177 for the desk's entire first week, and the console's
+    900-row blotter would hold nothing but heartbeat."""
     m, broker, cfg = desk
     assert m.cmd_manage_locked(Manage()) == 0
     k = _kinds(cfg)
-    assert k[0] == "manage_start" and k[-1] == "manage_end"
-    assert "integrity" in k
-    assert "tick_start" not in k and "signals" not in k and "gates" not in k
-    last = _journal(cfg)[-1]["data"]
-    assert last.get("idle") is True
+    assert k == ["manage_start", "integrity", "manage_end"], k
+    assert _journal(cfg)[-1]["data"].get("idle") is True
+
+    for _ in range(5):                                        # the quiet minutes
+        assert m.cmd_manage_locked(Manage()) == 0
+    assert _kinds(cfg) == k, "a quiet pass must not journal"
     assert broker.submitted == []
+    assert not list(cfg.snapshot_dir.glob("*.json"))          # and spends no snapshot
+
     st = m.Store(cfg.db_path)
-    assert st.get_kv("last_manage_ts") and not st.get_kv("last_tick_ts")
-    assert not list(cfg.snapshot_dir.glob("*.json"))          # no snapshot for a hold
+    try:
+        # it still proves it ran — in the store, where the watchdog reads it
+        assert st.get_kv("last_manage_ts") and not st.get_kv("last_tick_ts")
+        assert st.get_counter(m._today(), "manage_passes") == 6
+    finally:
+        st.conn.close()
+
+
+def test_a_pass_journals_the_integrity_verdict_again_when_it_changes(desk):
+    m, broker, cfg = desk
+    assert m.cmd_manage_locked(Manage()) == 0
+    n = _kinds(cfg).count("integrity")
+    assert m.cmd_manage_locked(Manage()) == 0
+    assert _kinds(cfg).count("integrity") == n                # unchanged: silent
+
+    st = m.Store(cfg.db_path)                                  # a leg appears from nowhere
+    st.upsert_structure("ghost", "iron_condor", "core", 1,
+                        json.dumps([{"symbol": "SPY260918P00600000", "qty": -1,
+                                     "entry_price": 1.0}]), 1.0, 900.0, "open")
     st.conn.close()
+    assert m.cmd_manage_locked(Manage()) == 0
+    assert _kinds(cfg).count("integrity") == n + 1             # changed: recorded
+    last = [e for e in _journal(cfg) if e["kind"] == "integrity"][-1]["data"]
+    assert last["changed"] is True and "DRIFT" in last["reason"]
 
 
 def test_pass_settles_a_working_entry_and_never_opens(desk):
@@ -67,6 +96,29 @@ def test_pass_settles_a_working_entry_and_never_opens(desk):
     st = m.Store(cfg.db_path)
     assert len(st.marks("real")) >= 2                           # tick mark + pass mark
     st.conn.close()
+
+
+def test_quiet_passes_mark_on_a_cadence_not_every_minute(desk):
+    """A mark a minute is 1,456 rows a session across four books. The pass
+    marks every mark_every_passes (~5 min) so the curve still moves between
+    ticks — and always when it acted, so a close lands on the curve at once."""
+    m, broker, cfg = desk
+    assert m.cmd_tick_locked(Args()) == 0
+    st = m.Store(cfg.db_path)
+    s = next(x for x in st.all_structures() if x["kind"] == "iron_condor")
+    st.conn.close()
+    broker.fill(s["client_order_id"], {l["symbol"]: l["entry_price"]
+                                       for l in json.loads(s["legs_json"])})
+    every = int(cfg.raw["manage"]["mark_every_passes"])
+    st = m.Store(cfg.db_path)
+    before = len(st.marks("real"))
+    st.conn.close()
+    for _ in range(every * 2):
+        assert m.cmd_manage_locked(Manage()) == 0
+    st = m.Store(cfg.db_path)
+    added = len(st.marks("real")) - before
+    st.conn.close()
+    assert added == 2, f"{every * 2} passes should mark twice, not {added} times"
 
 
 def test_pass_sends_the_close_when_the_target_is_hit(desk, monkeypatch):

@@ -470,6 +470,16 @@ function ladderLine() {
   return s;
 }
 
+/* The fast hand (DEVLOG #36b). A quiet pass writes nothing to the journal, so
+   the evidence it ran is the store's own counter — which is what the watchdog
+   reads too. Both numbers, or the cadence alone before the first session. */
+function manageLine() {
+  var g = D.manage || {};
+  if (!g.passes_today) return 'exits checked every ' + (g.interval_s || 60) + 's';
+  return n0(g.passes_today) + ' passes today, ' + n0(g.closes_today) + ' close' +
+    (g.closes_today === 1 ? '' : 's') + ' fired';
+}
+
 /* ---- workspace · desk --------------------------------------------------- */
 function paneDesk() {
   var sg = D.signals, prem = (sg.atm_iv - sg.rv20) * 100;
@@ -539,7 +549,7 @@ function paneDesk() {
         '<span>last tick</span><span>' + E(hm(D.last_tick_utc)) + 'Z, ' +
           E(ago(D.last_tick_utc)) + '</span>' +
         (D.last_manage_utc ? '<span>last managed</span><span>' + E(hm(D.last_manage_utc)) +
-          'Z, ' + E(ago(D.last_manage_utc)) + ' · exits are checked every minute</span>' : '') +
+          'Z, ' + E(ago(D.last_manage_utc)) + ' · ' + manageLine() + '</span>' : '') +
         '</div>' +
         '<p class="rnote" style="padding:0;margin-top:12px">Greeks are exposure in dollars: what ' +
         'the book earns or loses when one thing moves. Theta positive is the product — premium ' +

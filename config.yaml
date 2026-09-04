@@ -109,6 +109,14 @@ ladder:
       portfolio_worst_case_frac: 0.160
       portfolio_worst_case_cap: 0.180
 
+manage:
+  # DEVLOG #36b: the one-minute pass. It journals only what happened, but it
+  # marks the books on a cadence so the equity curve moves between ticks
+  # without 1,456 rows a session that nobody can read. A pass that ACTS marks
+  # regardless — a close must be visible on the curve at the minute it fired.
+  mark_every_passes: 5          # ~5 minutes
+  stale_after_min: 6            # the watchdog calls the loop dead past this
+
 liquidity:
   max_rel_spread: 0.08          # gate #6
   require_two_sided: true       # gate #5

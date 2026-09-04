@@ -509,8 +509,19 @@ def build() -> dict:
         "commit": head,
         "account": "PA39C10YAMYQ",
         "last_tick_utc": last_tick[:19] if last_tick else None,
-        # the one-minute management pass (DEVLOG #36): exits only, never an entry
+        # the one-minute management pass (DEVLOG #36): exits only, never an entry.
+        # A quiet pass journals nothing, so the count comes from the store's own
+        # counters — the same place the watchdog reads.
         "last_manage_utc": (kv.get("last_manage_ts") or "")[:19] or None,
+        "manage": {
+            "passes_today": int(next((d.get("manage_passes", 0)
+                                      for d in reversed(series["daily"])), 0)),
+            "closes_today": int(next((d.get("manage_closes", 0)
+                                      for d in reversed(series["daily"])), 0)),
+            "passes_total": int(sum(d.get("manage_passes", 0) for d in series["daily"])),
+            "closes_total": int(sum(d.get("manage_closes", 0) for d in series["daily"])),
+            "interval_s": 60,
+        },
         "ladder": limits["ladder"],
         # broker = authoritative account state. book = what our marks say, at tick
         # granularity. Both are published; neither is presented as the other.
