@@ -608,6 +608,9 @@ def cmd_tick(args) -> int:
         closes = [a.structure_id for a in actions if a.action == "close"]
         journal.append("manage_end", {"open": len(live_open), "closes": closes,
                                       "holds": sum(1 for a in actions if a.action == "hold"),
+                                      # why each one was held, so a quiet pass explains itself
+                                      "held": {a.structure_id[:8]: [a.reason[:80], round(a.est_pnl, 2)]
+                                               for a in actions if a.action == "hold"},
                                       "mode": dq.mode, "marks": marks})
         store.set_kv("last_manage_ts", now.isoformat())
         print(json.dumps({"manage": True, "open": len(live_open), "closes": closes,

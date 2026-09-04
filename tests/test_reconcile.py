@@ -123,7 +123,10 @@ def test_structure_close_price_mid_vs_cross():
               Leg(OptionContract.parse("SPY260918P00610000"), 1, 1.80)]
     assert structure_close_price(spread, chain) == round(-2.05 + 1.04, 4)          # pay mid net
     assert structure_close_price(spread, chain, cross=True) == round(-2.10 + 1.00, 4)  # buy at ask, sell at bid
-    assert structure_close_price(spread, {"SPY260918P00620000": chain["SPY260918P00620000"]}) is None
+    # DEVLOG #36: the LONG wing with no quote goes for nothing — the package
+    # is still priced (pay the short's mid); a SHORT leg with no quote cannot be
+    assert structure_close_price(spread, {"SPY260918P00620000": chain["SPY260918P00620000"]}) == -2.05
+    assert structure_close_price(spread, {"SPY260918P00610000": chain["SPY260918P00610000"]}) is None
 
 
 def test_realization_policy_only_in_last_hour():

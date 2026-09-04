@@ -75,9 +75,26 @@ def test_hold_inside_plan_when_active_day():
     assert actions[0].action == "hold"
 
 
-def test_unmarkable_quote_holds():
-    ch = _chain()
+def test_one_sided_quotes_mark_conservatively_and_the_rules_still_run():
+    """DEVLOG #36: a one-sided quote used to make the structure unmarkable and
+    silently switch off every exit — including the stop — for as long as the
+    far wing had no bid, which is exactly the state a gap leaves it in."""
+    # the SHORT put loses its bid: it is marked at the ask (what a buy-back
+    # costs), the structure stays markable and the rules keep running
+    ch = _chain(mult=3.2)
     ch["SPY260918P00620000"]["latestQuote"]["bp"] = 0.0
+    actions = review_book([_struct()], ch, MGMT, NOW, 1, "2026-09-18")
+    assert actions[0].action == "close" and "structure stop" in actions[0].reason
+    # the LONG wing loses its bid entirely: worth what nobody will pay — zero
+    ch = _chain(mult=3.2)
+    ch["SPY260918P00610000"]["latestQuote"] = {"bp": 0.0, "ap": 0.0}
+    actions = review_book([_struct()], ch, MGMT, NOW, 1, "2026-09-18")
+    assert actions[0].action == "close" and "structure stop" in actions[0].reason
+
+
+def test_a_short_leg_with_no_ask_cannot_be_priced_and_holds():
+    ch = _chain()
+    ch["SPY260918P00620000"]["latestQuote"] = {"bp": 0.0, "ap": 0.0}
     actions = review_book([_struct()], ch, MGMT, NOW, 1, "2026-09-18")
     assert actions[0].action == "hold" and "unmarkable" in actions[0].reason
 

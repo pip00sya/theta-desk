@@ -34,17 +34,39 @@ def legs_from_json(legs_json: str) -> list[Leg]:
     return out
 
 
+def leg_exit_price(leg: Leg, q: dict, cross: bool = False) -> float | None:
+    """The price a leg can be taken off at, from its quote.
+
+    DEVLOG #36: a two-sided quote prices at the mid (or at the market when
+    `cross`). A ONE-SIDED quote used to make the whole structure unmarkable,
+    which silently switched off every exit rule — including the stop — for as
+    long as it lasted. And it lasts exactly when it matters: after a gap the
+    untouched wing of a condor goes to bid 0, so the structure that most
+    needs its stop was the one that could not be marked. Now a long leg
+    nobody bids for is worth what nobody will pay — zero — and a short leg
+    is worth what it costs to buy back — the ask. Both are the conservative
+    side: the stop fires earlier, the target later. A short leg with no ask
+    at all still cannot be priced, and returns None."""
+    bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
+    if bid > 0 and ask > 0:
+        if cross:
+            return bid if leg.qty > 0 else ask
+        return 0.5 * (bid + ask)
+    if leg.qty > 0:                      # long: sell it — at the bid, or for nothing
+        return bid if bid > 0 else 0.0
+    return ask if ask > 0 else None      # short: buy it back — needs an ask
+
+
 def structure_mtm(legs: list[Leg], chain: dict[str, dict]) -> float | None:
-    """Mark structure P&L per unit from live chain mids; None if any leg unmarkable."""
+    """Mark structure P&L per unit from live quotes; None only if a SHORT leg
+    has no ask (see leg_exit_price)."""
     pnl = 0.0
     for leg in legs:
-        snap = chain.get(leg.contract.symbol) or {}
-        q = snap.get("latestQuote") or {}
-        bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
-        if bid <= 0 or ask <= 0:
+        q = (chain.get(leg.contract.symbol) or {}).get("latestQuote") or {}
+        px = leg_exit_price(leg, q)
+        if px is None:
             return None
-        mid = 0.5 * (bid + ask)
-        pnl += leg.qty * (mid - leg.entry_price) * 100
+        pnl += leg.qty * (px - leg.entry_price) * 100
     return pnl
 
 
@@ -54,16 +76,14 @@ def structure_close_price(legs: list[Leg], chain: dict[str, dict],
     structures), < 0 we pay (credit structures). cross=True takes the market
     — sell the longs at the bid, buy the shorts back at the ask — instead of
     the mid (DEVLOG #27: a mid limit that missed once is resubmitted at the
-    market, not at a fresh mid it can miss again). None if any leg is
-    unquoted."""
+    market, not at a fresh mid it can miss again). None only if a short leg
+    cannot be priced."""
     total = 0.0
     for leg in legs:
         q = (chain.get(leg.contract.symbol) or {}).get("latestQuote") or {}
-        bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
-        if bid <= 0 or ask <= 0:
+        px = leg_exit_price(leg, q, cross=cross)
+        if px is None:
             return None
-        mid = 0.5 * (bid + ask)
-        px = (bid if leg.qty > 0 else ask) if cross else mid
         total += leg.qty * px
     return round(total, 4)
 
