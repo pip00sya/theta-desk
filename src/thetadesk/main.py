@@ -911,8 +911,11 @@ def cmd_tick(args) -> int:
             journal.append("hedge_skipped_max_attempts", {"structure_id": h.structure_id,
                                                           "attempts": h_attempts})
             h = None
+        # the hedge is a 5-delta put — the cheapest contract in the book, and
+        # so exactly the case a purely relative spread cap reads wrong (#36c)
         if h and not check_quote(chain.get(h.legs[0].contract.symbol) or {},
-                                 cfg["liquidity"]["max_rel_spread"]).ok:
+                                 cfg["liquidity"]["max_rel_spread"],
+                                 cfg["liquidity"].get("max_abs_spread", 0.0)).ok:
             journal.append("hedge_skipped_illiquid", {"symbol": h.legs[0].contract.symbol})
             h = None
         if h:

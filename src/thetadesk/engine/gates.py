@@ -89,14 +89,16 @@ def g4_defined_risk(s: Structure) -> GateResult:
                       {"max_loss": ml})
 
 
-def g5_g6_liquidity(s: Structure, chain: dict[str, dict], max_rel_spread: float) -> list[GateResult]:
+def g5_g6_liquidity(s: Structure, chain: dict[str, dict], max_rel_spread: float,
+                    max_abs_spread: float = 0.0) -> list[GateResult]:
     out = []
     for leg in s.legs:
         snap = chain.get(leg.contract.symbol)
-        qc = check_quote(snap or {}, max_rel_spread)
+        qc = check_quote(snap or {}, max_rel_spread, max_abs_spread)
         out.append(GateResult("g5g6_liquidity", qc.ok,
                               f"{leg.contract.symbol}: {qc.reason}",
-                              {"bid": qc.bid, "ask": qc.ask, "rel_spread": qc.rel_spread}))
+                              {"bid": qc.bid, "ask": qc.ask, "rel_spread": qc.rel_spread,
+                               "abs_spread": qc.abs_spread}))
     return out
 
 
@@ -264,7 +266,8 @@ def run_entry_gates(
     results.append(g3_expiry(structure, cfg.min_expiry, asof,
                              int(m.get("min_entry_dte", m["time_stop_dte"] + 3))))
     results.append(g4_defined_risk(structure))
-    results.extend(g5_g6_liquidity(structure, chain, cfg["liquidity"]["max_rel_spread"]))
+    results.extend(g5_g6_liquidity(structure, chain, cfg["liquidity"]["max_rel_spread"],
+                                   cfg["liquidity"].get("max_abs_spread", 0.0)))
     results.append(g19_feed_freshness(chain, spot, asof,
                                       cfg["liquidity"].get("max_quote_age_min", 10)))
     results.append(g7_structure_size(structure, qty, equity, tier.per_structure))
