@@ -72,6 +72,19 @@ def _sid(kind: str, legs: list[Leg], day: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def clashing_legs(book: list[Leg], cand: list[Leg]) -> list[str]:
+    """Legs of a candidate that the book already holds on the OTHER side.
+
+    DEVLOG #37: on 2026-09-04 14:30Z a fourth QQQ condor sold C742 to open
+    while an earlier condor was long C742; Alpaca inferred sell_to_close and
+    refused the whole mleg (422 'position intent mismatch'). Same-side
+    overlap is fine — it just adds quantity — so only opposite signs clash."""
+    net: dict[str, int] = {}
+    for l in book:
+        net[l.contract.symbol] = net.get(l.contract.symbol, 0) + l.qty
+    return [l.contract.symbol for l in cand if net.get(l.contract.symbol, 0) * l.qty < 0]
+
+
 def vrp_score(atm_iv: float, realized_vol: float) -> float:
     """Deterministic volatility-risk-premium score in [0, 1].
     0.5 = IV equals RV; +1 sigma-ish enrichment maps toward 1."""

@@ -183,9 +183,14 @@ def test_sizing_keys_drive_the_multipliers():
     v = DeskView(regime_analyst="rich", regime_second="neutral", disagreement=True, veto=False,
                  veto_reason="", objection="", objection_severity="low", disagreement_mult=0.25)
     assert v.size_mult == 0.25
+    # DEVLOG #37: a 'high' objection on its own no longer resizes; with the
+    # readers disagreeing it corroborates, and the two haircuts compound
     v2 = DeskView(regime_analyst="rich", regime_second="rich", disagreement=False, veto=False,
                   veto_reason="", objection="", objection_severity="high", disagreement_mult=0.25)
-    assert v2.size_mult == 0.25
+    assert v2.size_mult == 1.0 and v2.objection_applied is False
+    v3 = DeskView(regime_analyst="rich", regime_second="neutral", disagreement=True, veto=False,
+                  veto_reason="", objection="", objection_severity="high", disagreement_mult=0.25)
+    assert v3.objection_applied is True and v3.size_mult == 0.0625
     import inspect
     from thetadesk.engine import selector as sel
     assert "neutral_mult" in inspect.signature(sel.select).parameters

@@ -93,11 +93,26 @@ class DeskView:
     disagreement_mult: float = 0.5   # config sizing.disagreement_mult (gate #16)
 
     @property
+    def objection_applied(self) -> bool:
+        """DEVLOG #37: a 'high' objection resizes only when an INDEPENDENT
+        signal corroborates it — the two regime readers disagreeing, or both
+        flagging the feed. Alone it is recorded, never enforced.
+
+        The officer's prompt asks it to attack, and it did: 'high' on 55 of
+        75 meetings, 52 of the last 53. A signal that fires on every trade is
+        a constant wearing a judgement's clothes, and this one silently held
+        every entry at a third of the size the rung allowed. Same rule DEVLOG
+        #29 gave data_suspect: a lone doubt is an opinion. Concentration — the
+        thing the officer was actually right about — is now measured by code
+        (sizing.max_core_per_underlying) rather than argued by a model."""
+        return self.objection_severity == "high" and (self.disagreement or self.data_suspect)
+
+    @property
     def size_mult(self) -> float:
         m = 1.0
         if self.disagreement:
             m *= self.disagreement_mult
-        if self.objection_severity == "high":
+        if self.objection_applied:
             m *= self.disagreement_mult
         if self.data_suspect:
             # DEVLOG #29: an unconfirmed data doubt halves size; only the
@@ -108,6 +123,7 @@ class DeskView:
     def to_dict(self) -> dict:
         d = self.__dict__.copy()
         d["size_mult"] = self.size_mult
+        d["objection_applied"] = self.objection_applied
         return d
 
 

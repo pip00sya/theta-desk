@@ -678,6 +678,14 @@ def cmd_tick(args) -> int:
         # stated in the write-up), and every gate incl. the multi-underlying
         # payoff grid prices the combined book.
         neutral_mult = float(cfg.raw.get("sizing", {}).get("neutral_regime_mult", 0.5))
+        # DEVLOG #37: concentration is a number the code can read, not an
+        # argument a model has to keep winning. On Sep 4 every candidate was
+        # QQQ (SPY sat a few cents under the credit floor) and the desk stacked
+        # a fourth condor on the same strikes — the risk officer objected every
+        # time, correctly, and the only effect was a halved size. Now the
+        # rotation refuses to stack past the cap, and the officer is heard
+        # about something else.
+        max_per_und = int(cfg.raw.get("sizing", {}).get("max_core_per_underlying", 0) or 0)
         held: dict[str, int] = {}
         # all_structures, not open_structs: a --dry-run book never leaves
         # 'dry_run' status, and the demo has to show the same rotation the
@@ -693,6 +701,12 @@ def cmd_tick(args) -> int:
         journal.append("underlying_order", {"order": order, "held": held})
         cand = None
         for u in order:
+            if max_per_und and held.get(u, 0) >= max_per_und:
+                journal.append("alt_underlying_none", {
+                    "underlying": u, "held": held.get(u, 0),
+                    "reason": f"concentration cap: {held.get(u, 0)} core structures on {u} "
+                              f"(max {max_per_und})"})
+                continue
             if u == primary:
                 u_entries, u_chain = entries, None
             else:
@@ -722,6 +736,15 @@ def cmd_tick(args) -> int:
                 # of NO_CANDIDATE unexplainable (was the fallback even reached?).
                 journal.append("alt_underlying_none", {"underlying": u,
                                                        "contracts": len(u_chain or chain)})
+                continue
+            clash = sel.clashing_legs(shadow.real_book_legs(store, include_pending=True),
+                                      cand.structure.legs)
+            if clash:
+                # a leg the book holds on the other side is a close, not an
+                # entry — the broker would refuse the package (DEVLOG #37)
+                journal.append("entry_skipped_strike_overlap", {
+                    "underlying": u, "structure_id": cand.structure.structure_id, "legs": clash})
+                cand = None
                 continue
             if u != primary:
                 chain = {**chain, **u_chain}

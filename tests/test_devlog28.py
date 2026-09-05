@@ -117,7 +117,9 @@ def test_desk_treats_empty_and_string_booleans_safely(monkeypatch):
     assert view.regime_analyst == "rich"
     assert view.veto is False                       # "false" must not become a veto
     assert view.objection_severity == "high"        # case-normalised
-    assert view.size_mult == 0.5                    # high severity halves; no disagreement (second fell back)
+    # DEVLOG #37: a lone 'high' is recorded, not enforced — no disagreement
+    # (the second reader fell back) and no data doubt corroborate it
+    assert view.objection_applied is False and view.size_mult == 1.0
     assert any(f.startswith("second_opinion:") for f in view.fallbacks)
 
 

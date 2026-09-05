@@ -31,7 +31,11 @@ structures:
     short_call_delta: 0.15
     put_wing_width: 10.0
     call_wing_width: 10.0
-    min_credit_frac_of_width: 0.18
+    # DEVLOG #37: 0.18 refused SPY on every tick of Sep 4 at $1.69-1.77 against
+    # a $1.80 floor, so every candidate was QQQ and the book stacked one name.
+    # 0.17 admits those SPY condors (≥20% credit on risk instead of ≥22%) and
+    # buys the rotation a second underlying — the thing it exists for.
+    min_credit_frac_of_width: 0.17
     # DEVLOG #17: the neutral branch widens strikes by 4 delta, which
     # structurally collects ~30% less credit; with the base floor it could
     # never fire (SPY $1.27-1.33 / QQQ $1.40 vs $1.80 all of Sep 1). 0.12 sits
@@ -156,8 +160,15 @@ management:
 sizing:
   # DEVLOG #31: these were documentation of hard-coded 0.5s; now they are read.
   disagreement_mult: 0.5        # gate #16 — agents/desk.py DeskView.size_mult (also
-                                # applied for a high-severity objection and data_suspect)
+                                # applied for data_suspect, and for a high-severity
+                                # objection ONLY when disagreement or data_suspect
+                                # corroborates it — DEVLOG #37: alone it is recorded)
   neutral_regime_mult: 0.5      # engine/selector.py neutral branch
+  # DEVLOG #37: concentration measured by code. The rotation will not open a
+  # core structure on an underlying that already carries this many; the book
+  # held four QQQ condors on near-identical strikes on Sep 4 with nothing but
+  # a model's objection standing in the way. 0 disables the cap.
+  max_core_per_underlying: 4
   # No event_mode_mult: inside the event window gate #17 refuses new risk
   # outright (a multiplier of 0.0 was never read by anything).
 
