@@ -114,6 +114,11 @@ def main() -> int:
         f"{dd:.2%} vs {cfg['risk']['drawdown_halt_frac']:.0%}")
     last = store.get_kv("last_tick_ts", "")
     say("ok", "last tick", last[:19] or "never")
+    # DEVLOG #38: the operator's switch is a warning, never a blocker — a desk
+    # told not to open is healthy, but a GO that hides it would be a lie
+    ent = bool((cfg.raw.get("entries") or {}).get("enabled", True))
+    say("ok" if ent else "warn", "new entries",
+        "enabled" if ent else "DISABLED by operator (config entries.enabled) — exits and marks continue")
     lm = store.get_kv("last_manage_ts", "")
     say("ok", "last management pass", lm[:19] or "never")
 

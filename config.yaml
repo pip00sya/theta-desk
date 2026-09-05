@@ -11,6 +11,16 @@ universe:
   underlyings: [SPY, QQQ, IWM]
   primary: SPY
 
+entries:
+  # DEVLOG #38 (2026-09-05): the operator stopped NEW risk. Not an outage and
+  # not a halt — the tick keeps reconciling, marking, managing exits,
+  # journaling and publishing the dashboard; the minute loop keeps closing
+  # positions on their own rules (profit target, stops, time stop on Sep 14,
+  # event shield). Only the selector and the hedge sleeve are off. The
+  # journal records `entries_disabled {operator: true}` on every tick.
+  # Set true to trade again; nothing else needs touching.
+  enabled: false
+
 expiry:
   # Gate #3 (patched): every leg expires on/after this date. Sep 18 monthly.
   min_expiry: "2026-09-18"

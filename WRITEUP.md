@@ -130,7 +130,7 @@ hours before a deadline. The measurement is the result; the code is next.
 | 17 | desk_meetings_llm_dark | 8 | `python tools/reconcile.py` |
 | 18 | llm_fallbacks_recorded | 32 | `python tools/reconcile.py` |
 | 19 | marks_quarantined | 8 | `python tools/reconcile.py` |
-| 20 | test_functions | 159 | `python tools/reconcile.py` |
+| 20 | test_functions | 160 | `python tools/reconcile.py` |
 <!-- CLAIMS:END -->
 
 *Paper trading simulation only. Hypothetical results, no real funds, not

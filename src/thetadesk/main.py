@@ -527,7 +527,12 @@ def cmd_tick(args) -> int:
         # (DEVLOG #28 — before this the tick aborted here, forever).
         journal.append("integrity_halt", {"reason": why})
         print(f"INTEGRITY BREACH: {why} — new risk halted (manual action required)", file=sys.stderr)
-    halt_new_risk = (not ok) or dq.mode != "full"
+    # DEVLOG #38: the operator's rubber stamp. entries.enabled: false is a
+    # decision, not an outage — the tick keeps reconciling, marking, managing,
+    # journaling and publishing; only the selector never runs and the hedge
+    # sleeve never buys. Every tick says so in the journal.
+    entries_on = bool((cfg.raw.get("entries") or {}).get("enabled", True))
+    halt_new_risk = (not ok) or dq.mode != "full" or not entries_on
     open_structs = store.open_structures()
 
     entries_today = int(store.get_counter(_today(), "entries"))
@@ -665,7 +670,8 @@ def cmd_tick(args) -> int:
     exp_date = date.fromisoformat(expiry)
     if halt_new_risk:
         journal.append("entries_disabled", {"integrity_ok": ok, "data_quality": dq.mode,
-                                            "reasons": dq.reasons})
+                                            "reasons": dq.reasons,
+                                            "operator": not entries_on})
         cand = None
     else:
         # DEVLOG #16 + #31: search the whole universe, LEAST-EXPOSED underlying

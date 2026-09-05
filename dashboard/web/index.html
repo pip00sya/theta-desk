@@ -495,7 +495,9 @@ function paneDesk() {
         ? '<span class="chip hot">vol ' + E(sg.regime) + '</span>' +
           '<span class="chip">data ' + E(sg.data_quality || 'full') + '</span>' +
           '<span class="chip ' + (D.verification.chain_ok ? 'g' : 'r') + '">chain ' +
-          (D.verification.chain_ok ? 'intact' : 'broken') + '</span>'
+          (D.verification.chain_ok ? 'intact' : 'broken') + '</span>' +
+          (D.params.entries && D.params.entries.enabled === false
+            ? '<span class="chip r">new risk off · operator</span>' : '')
         : '<span class="chip">' + (f.taken ? 'rotation underlying' : 'never entered') + '</span>' +
           '<span class="chip">no signal series</span>') + '</div>' +
     (f.primary

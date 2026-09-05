@@ -19,7 +19,7 @@ from thetadesk.engine.contracts import Leg, OptionContract
 from thetadesk.engine.selector import clashing_legs
 from test_session_sim import (AutoBroker, Manage, condor_lots, invariants, kinds,  # noqa: F401
                               pause, rows, seed_record, sim, tick)
-from test_tick_flow import _journal
+from test_tick_flow import _journal, _struct
 
 
 def _view(**kw) -> DeskView:
@@ -87,4 +87,33 @@ def test_concentration_cap_stops_stacking_one_name(sim, monkeypatch):
             if e["kind"] == "alt_underlying_none" and "concentration cap" in str(e["data"].get("reason"))]
     assert len(caps) >= 3                                 # the fourth tick was refused on every name
     assert "no_candidate" in kinds(cfg)
+    invariants(m, broker, cfg)
+
+
+def test_operator_kill_switch_stops_entries_but_not_exits(sim, monkeypatch):
+    """DEVLOG #38: entries.enabled false is a decision the tick keeps making
+    out loud — no selector, no hedge, but the book is still marked, managed
+    and closed on its own rules."""
+    m, broker, cfg = sim
+    seed_record(m, cfg, n=5, pnl_each=60.0, hwm=100_000)
+    tick(m, broker)                                    # one condor while enabled
+    s = rows(m, cfg, kind="iron_condor")[0]
+    broker.settle()
+    pause(m, broker)
+    assert _struct(m, cfg, s["structure_id"])["status"] == "open"
+
+    monkeypatch.setitem(cfg.raw, "entries", {"enabled": False})
+    broker.spot += 3.0                                 # a fresh candidate would exist
+    n_orders = len(broker.submitted)
+    tick(m, broker)
+    assert len(broker.submitted) == n_orders           # nothing opened, no hedge either
+    j = _journal(cfg)
+    off = [e["data"] for e in j if e["kind"] == "entries_disabled"]
+    assert off and off[-1]["operator"] is True and off[-1]["integrity_ok"] is True
+    assert "gates" not in [e["kind"] for e in j[-12:]] # the selector never ran
+    assert any(e["kind"] == "marks" for e in j[-6:])   # but the book was marked
+
+    broker.atm_iv = 0.105                              # the condor reaches its target
+    pause(m, broker)
+    assert _struct(m, cfg, s["structure_id"])["status"] == "closing"   # exits still fire
     invariants(m, broker, cfg)
