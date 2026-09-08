@@ -39,3 +39,6 @@ data/manager.pid
 
 # competitor research is not part of this project
 research/
+
+# the operator's telegram mute marker - local, not a git-tracked state
+data/alerts_mute
