@@ -1,21 +1,20 @@
-# Stop the visible console flashes (DEVLOG #40).
+# Stop the visible console flashes (DEVLOG #40) — a fallback / idempotent
+# re-check. The live fix already landed on 2026-09-10 from a NON-elevated
+# session: every Set-ScheduledTask call below reported "Access is denied",
+# but schtasks /query and a fresh Get-ScheduledTask afterwards showed the
+# change had actually committed anyway on all five tasks — a known Task
+# Scheduler COM quirk where a secondary internal call throws even though the
+# write itself succeeds. So this script is not required for that fix; it is
+# kept as a belt-and-braces re-assertion (idempotent — safe to run again)
+# and because it's the clearest single place documenting what "hidden"
+# actually means for a scheduled task: the action's own -WindowStyle Hidden
+# PLUS the task's Settings.Hidden, which is the property Task Scheduler
+# actually honours to suppress the window outright rather than trusting the
+# launched process to apply a style fast enough. If a future change to
+# these tasks ever needs a genuinely elevated hand (e.g. the S4U principal
+# itself, per DEVLOG #37/harden_task.ps1), run this as administrator; it
+# does nothing destructive either way.
 #
-# Three of the five theta-desk tasks launch powershell.exe with NO window
-# style at all, so every firing pops a fully visible console for a few
-# seconds: theta-desk-heartbeat every 15 minutes during the session,
-# theta-desk-watchdog roughly every 20-30, theta-desk-keepalive every ~3h.
-# The other two (manager, pulse) already pass -WindowStyle Hidden as an
-# ARGUMENT, but that alone can still let Windows allocate and flash a
-# console for an instant before PowerShell applies the style — the task's
-# own "Hidden" setting (Settings.Hidden) is the mechanism Task Scheduler
-# actually honours to suppress the window outright, and none of the five
-# tasks have it set.
-#
-# Changing a task's Action or Settings needs elevation for tasks registered
-# S4U (same wall hit registering them in the first place, DEVLOG #37/harden
-# _task.ps1) — this session cannot do it.
-#
-#   RUN AS ADMINISTRATOR:
 #   powershell -ExecutionPolicy Bypass -File ops\hide_windows.ps1
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent

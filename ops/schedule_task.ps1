@@ -6,8 +6,14 @@
 # Run once:  powershell -ExecutionPolicy Bypass -File ops\schedule_task.ps1
 
 $repo = Split-Path $PSScriptRoot -Parent
+# DEVLOG #40: -WindowStyle Hidden was missing here, so every 15-minute fire
+# during the session popped a visible console for a few seconds. Settings'
+# own -Hidden is the mechanism Task Scheduler actually honours to suppress
+# the window outright rather than trusting the launched process to apply a
+# style fast enough; both are set now, matching ops/manager.ps1 and
+# ops/pulse.ps1's registration in harden_task.ps1.
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$repo\ops\tick_wrapper.ps1`"" `
+  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$repo\ops\tick_wrapper.ps1`"" `
   -WorkingDirectory $repo
 $weekly = New-ScheduledTaskTrigger -Weekly `
   -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "18:30"
@@ -19,7 +25,7 @@ $weekly.Repetition = $rep.Repetition
 # battery power (cost us the 18:30-19:00 window on day one of the schedule).
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-  -MultipleInstances IgnoreNew `
+  -MultipleInstances IgnoreNew -Hidden `
   -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 Register-ScheduledTask -TaskName "theta-desk-heartbeat" -Action $action `
   -Trigger $weekly -Settings $settings -Force

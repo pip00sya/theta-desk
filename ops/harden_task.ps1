@@ -28,8 +28,11 @@ foreach ($loop in @("pulse", "manager")) {
     -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$repo\ops\$loop.ps1`"" `
     -WorkingDirectory $repo
   $trigger = New-ScheduledTaskTrigger -AtStartup
+  # DEVLOG #40: -WindowStyle Hidden on the action alone can still let Windows
+  # flash a console for an instant before PowerShell applies the style; the
+  # task's own -Hidden is what Task Scheduler actually honours to suppress it.
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Days 0)
+    -StartWhenAvailable -Hidden -ExecutionTimeLimit (New-TimeSpan -Days 0)
   $p = New-ScheduledTaskPrincipal -UserId $me -LogonType S4U -RunLevel Limited
   Register-ScheduledTask -TaskName "theta-desk-$loop" -Action $action -Trigger $trigger `
     -Settings $settings -Principal $p -Force | Out-Null
