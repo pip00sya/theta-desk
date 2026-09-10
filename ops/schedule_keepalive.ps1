@@ -9,8 +9,12 @@
 #
 # Run once:  powershell -ExecutionPolicy Bypass -File ops\schedule_keepalive.ps1
 $repo = Split-Path $PSScriptRoot -Parent
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$repo\ops\keepalive.ps1`"" `
+# DEVLOG #40b: -WindowStyle Hidden alone still flashed a console on this
+# machine (the OS can allocate one before PowerShell applies the style).
+# wscript.exe running run_hidden.vbs never allocates a console at all.
+$inner = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$repo\ops\keepalive.ps1`""
+$action = New-ScheduledTaskAction -Execute "wscript.exe" `
+  -Argument "//B //Nologo `"$repo\ops\run_hidden.vbs`" `"$inner`"" `
   -WorkingDirectory $repo
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
   -RepetitionInterval (New-TimeSpan -Hours 3) -RepetitionDuration (New-TimeSpan -Days 16)

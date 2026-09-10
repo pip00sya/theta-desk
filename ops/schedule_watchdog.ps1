@@ -11,8 +11,12 @@
 #
 # Run once:  powershell -ExecutionPolicy Bypass -File ops\schedule_watchdog.ps1
 $repo = Split-Path $PSScriptRoot -Parent
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$repo\ops\watchdog.ps1`"" `
+# DEVLOG #40b: -WindowStyle Hidden alone still flashed a console on this
+# machine (the OS can allocate one before PowerShell applies the style).
+# wscript.exe running run_hidden.vbs never allocates a console at all.
+$inner = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$repo\ops\watchdog.ps1`""
+$action = New-ScheduledTaskAction -Execute "wscript.exe" `
+  -Argument "//B //Nologo `"$repo\ops\run_hidden.vbs`" `"$inner`"" `
   -WorkingDirectory $repo
 $weekly = New-ScheduledTaskTrigger -Weekly `
   -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "18:50"
