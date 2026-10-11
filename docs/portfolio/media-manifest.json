@@ -1,0 +1,32 @@
+[
+  {
+    "file": "dashboard.png",
+    "bytes": 222586,
+    "sha256": "12251889aced08a3e674a3161e19897b08a62c381d5fcb971a05f18119ab1e8b"
+  },
+  {
+    "file": "desk.png",
+    "bytes": 107626,
+    "sha256": "ffd69a0a4a80e4598b5b4472d4f324ed4f52e474abda72921a511b95c3b6110d"
+  },
+  {
+    "file": "media/theta-desk-demo.mp4",
+    "bytes": 13605887,
+    "sha256": "bea8c4fa25a625a2641c9e0f1a6d1caf0c58bd64ad40f50e755ec55167c9b311"
+  },
+  {
+    "file": "media/theta-desk-slides.pdf",
+    "bytes": 340757,
+    "sha256": "41d306084faf221c81e97657d1f49b2c1e62d99526962d3eb1c4c50144218d26"
+  },
+  {
+    "file": "theta-proof.png",
+    "bytes": 99646,
+    "sha256": "3ee463256838c8cf637ce75070e2d5b39ec90e7f36d3eb82496a4d6280bd215b"
+  },
+  {
+    "file": "theta-rules.png",
+    "bytes": 120409,
+    "sha256": "cdbd27e494329c5ae6a24f60e44a981b6706ab25fb12fe4486c84e4acce74633"
+  }
+]
