@@ -166,3 +166,14 @@ measurement is the deliverable; the code is the next session's.
   in the write-up
 
 MIT License.
+
+## Joint development and project copy
+
+**QwertyS** — jointly developed by [Shakhnazar Akhmer / Eye172](https://github.com/Eye172)
+and [Nurkhan Aimukatov / pip00sya](https://github.com/pip00sya), with equal roles as
+Full-stack Engineers, Software Engineers and AI Engineers. Shakhnazar also works as an ML Engineer.
+
+The original development history and code are preserved in
+[pip00sya/theta-desk](https://github.com/pip00sya/theta-desk).
+Full-history project copy and migration materials:
+[Eye172/alpaca-ai-trading-agents-hackathon](https://github.com/Eye172/alpaca-ai-trading-agents-hackathon).
